@@ -2,9 +2,9 @@ const ftp = require("basic-ftp");
 const fs = require("fs");
 const inquirer = require("inquirer");
 const cliProgress = require("cli-progress");
+const { type } = require("os");
 
 const client = new ftp.Client();
-
 const accessOptions = {
   host: "78.22.145.53",
   user: "robin",
@@ -17,19 +17,52 @@ const accessOptions = {
     },
   },
 };
+console.clear();
+
+const foldersToDownload = [];
 
 client
   .access(accessOptions)
-  .then(getMediaFolders)
-  .then(askMediaPreferences)
-  .then(searchMedia)
-  .then(askMedia)
-  .then(handleMedia)
+  .then(loopPromptMedia)
+  .then(downloadMedia)
   .then(closeClient)
-  .catch(function (e) {
-    console.log(e);
-    closeClient();
-  });
+  .catch(onError);
+
+function onError(e) {
+  console.log("Error:", e);
+  return closeClient();
+}
+
+function loopPromptMedia() {
+  return promptMedia()
+    .then(promptDownloadMoreMedia)
+    .then((result) => {
+      if (result) return loopPromptMedia();
+      return Promise.resolve();
+    });
+
+  function promptDownloadMoreMedia() {
+    return inquirer
+      .prompt([
+        {
+          type: "confirm",
+          message: "Download more media?",
+          name: "result",
+        },
+      ])
+      .then((answers) => {
+        return !!answers.result;
+      });
+  }
+}
+
+function promptMedia() {
+  return getMediaFolders()
+    .then(askMediaPreferences)
+    .then(searchMedia)
+    .then(inquireMedia)
+    .then(handleMedia);
+}
 
 function getMediaFolders() {
   return client.list();
@@ -49,7 +82,7 @@ function searchMedia(mediaPref) {
   });
 }
 
-function askMedia(filesInfo) {
+function inquireMedia(filesInfo) {
   return inquirer
     .prompt([
       {
@@ -57,7 +90,14 @@ function askMedia(filesInfo) {
         message: "Pick your media",
         name: "name",
         choices: filesInfo.files
-          .filter((file) => file.isDirectory && !file.name.startsWith("."))
+          .filter(
+            (file) =>
+              file.isDirectory &&
+              !file.name.startsWith(".") &&
+              !foldersToDownload.filter(
+                (folder) => folder.file.name === file.name
+              ).length
+          )
           .map((file) => file.name),
       },
     ])
@@ -82,6 +122,62 @@ function handleMedia(fileInfo) {
   });
 }
 
+function downloadMedia() {
+  const multibar = new cliProgress.MultiBar(
+    {
+      clearOnComplete: false,
+      hideCursor: true,
+      format:
+        "{bar} {percentage}% | {media} | ETA: {eta}s | {valueFormat} / {totalFormat}",
+    },
+    cliProgress.Presets.shades_grey
+  );
+
+  let currentFolder = 0;
+  let bars = {};
+  foldersToDownload.forEach((file) => {
+    bars[file.file.name] = multibar.create(file.size, 0, {
+      media: file.file.name,
+      totalFormat: formatBytes(file.size),
+      valueFormat: formatBytes(0),
+    });
+  });
+
+  return getDownloadNextFolderPromise();
+
+  function getDownloadNextFolderPromise() {
+    if (currentFolder < foldersToDownload.length) {
+      let folderInfo = foldersToDownload[currentFolder++];
+
+      return downloadFolder(folderInfo).then(getDownloadNextFolderPromise);
+    }
+
+    multibar.stop();
+    return Promise.resolve();
+  }
+
+  function downloadFolder(fileInfo) {
+    const remotePath = fileInfo.path;
+    const localPath = `${__dirname}/${remotePath}`;
+
+    client.trackProgress((info) => {
+      bar = bars[fileInfo.file.name];
+      if (bar && info.type === "download")
+        bar.update(info.bytesOverall, {
+          valueFormat: formatBytes(info.bytesOverall),
+        });
+    });
+
+    function stopTrackingProgress() {
+      client.trackProgress();
+    }
+
+    return client
+      .downloadToDir(localPath, remotePath)
+      .then(stopTrackingProgress);
+  }
+}
+
 function handleSerie(fileInfo, files) {
   // Serie media: handle individual episode download
   return Promise.reject("Serie download not supported yet");
@@ -89,29 +185,13 @@ function handleSerie(fileInfo, files) {
 
 function handleMovie(fileInfo, files) {
   // Movie media: download whole folder
-  const remotePath = fileInfo.path;
-  const localPath = `${__dirname}/${remotePath}`;
-
-  console.log(`Downloading from ${remotePath} to ${localPath}`);
-
-  const multibar = new cliProgress.MultiBar(
-    {
-      clearOnComplete: false,
-      hideCursor: true,
-      format: "{bar} {percentage}% | ETA: {eta}s | {value}/{total}",
-    },
-    cliProgress.Presets.shades_grey
-  );
-
-  bars = {};
-  files.forEach((file) => (bars[file.name] = multibar.create(file.size, 0)));
-  client.trackProgress((info) => {
-    //console.log(info);
-    bar = bars[info.name];
-    //console.log(info.name, Object.keys(bars));
-    if (bar) bar.update(info.bytes);
+  foldersToDownload.push({
+    path: fileInfo.path,
+    file: fileInfo.file,
+    size: files.reduce(function (a, b) {
+      return a + b.size;
+    }, 0),
   });
-  return client.downloadToDir(localPath, remotePath).then(client.trackProgress);
 }
 
 function askMediaPreferences(files) {
@@ -133,7 +213,7 @@ function askMediaPreferences(files) {
 }
 
 function closeClient() {
-  client.close();
+  return client.close();
 }
 
 function formatBytes(bytes) {
