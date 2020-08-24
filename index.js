@@ -61,7 +61,8 @@ function promptMedia() {
     .then(askMediaTypeAndSearchTerm)
     .then(searchMedia)
     .then(askMediaSelect)
-    .then(handleMedia);
+    .then(handleMedia)
+    .catch((e) => console.log(e));
 }
 
 function getMediaFolders() {
@@ -73,12 +74,18 @@ function searchMedia(mediaPref) {
   let name = mediaPref.media_title;
 
   return client.list(path).then((files) => {
-    return {
-      path: path,
-      files: files.filter((file) =>
-        file.name.toLowerCase().includes(name.toLowerCase())
-      ),
-    };
+    let filteredFiles = files.filter((file) =>
+      file.name.toLowerCase().includes(name.toLowerCase())
+    );
+
+    if (filteredFiles.length) {
+      return {
+        path: path,
+        files: filteredFiles,
+      };
+    }
+
+    return Promise.reject("No search results");
   });
 }
 
