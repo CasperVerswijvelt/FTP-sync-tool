@@ -11,6 +11,7 @@
   "dependencies": {
     "basic-ftp": "^4.6.2",
     "cli-progress": "^3.8.2",
-    "inquirer": "^7.3.3"
+    "inquirer": "^7.3.3",
+    "mkdirp": "^1.0.4"
   }
 }

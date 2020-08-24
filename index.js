@@ -2,7 +2,7 @@ const ftp = require("basic-ftp");
 const fs = require("fs");
 const inquirer = require("inquirer");
 const cliProgress = require("cli-progress");
-const { type } = require("os");
+const mkdirp = require("mkdirp");
 
 const client = new ftp.Client();
 const accessOptions = {
@@ -19,7 +19,7 @@ const accessOptions = {
 };
 console.clear();
 
-const foldersToDownload = [];
+const downloadQueue = [];
 
 client
   .access(accessOptions)
@@ -58,9 +58,9 @@ function loopPromptMedia() {
 
 function promptMedia() {
   return getMediaFolders()
-    .then(askMediaPreferences)
+    .then(askMediaTypeAndSearchTerm)
     .then(searchMedia)
-    .then(inquireMedia)
+    .then(askMediaSelect)
     .then(handleMedia);
 }
 
@@ -82,7 +82,7 @@ function searchMedia(mediaPref) {
   });
 }
 
-function inquireMedia(filesInfo) {
+function askMediaSelect(filesInfo) {
   return inquirer
     .prompt([
       {
@@ -94,9 +94,8 @@ function inquireMedia(filesInfo) {
             (file) =>
               file.isDirectory &&
               !file.name.startsWith(".") &&
-              !foldersToDownload.filter(
-                (folder) => folder.file.name === file.name
-              ).length
+              !downloadQueue.filter((folder) => folder.file.name === file.name)
+                .length
           )
           .map((file) => file.name),
       },
@@ -114,7 +113,7 @@ function inquireMedia(filesInfo) {
 
 function handleMedia(fileInfo) {
   return client.list(fileInfo.path).then((files) => {
-    if (files.filter((file) => file.name === "Season 1").length) {
+    if (files.filter((file) => file.name.match(/Season [0-9]+/)).length) {
       return handleSerie(fileInfo, files);
     } else {
       return handleMovie(fileInfo, files);
@@ -135,7 +134,7 @@ function downloadMedia() {
 
   let currentFolder = 0;
   let bars = {};
-  foldersToDownload.forEach((file) => {
+  downloadQueue.forEach((file) => {
     bars[file.file.name] = multibar.create(file.size, 0, {
       media: file.file.name,
       totalFormat: formatBytes(file.size),
@@ -143,22 +142,23 @@ function downloadMedia() {
     });
   });
 
-  return getDownloadNextFolderPromise();
+  return getDownloadNextElementPromise();
 
-  function getDownloadNextFolderPromise() {
-    if (currentFolder < foldersToDownload.length) {
-      let folderInfo = foldersToDownload[currentFolder++];
+  function getDownloadNextElementPromise() {
+    if (currentFolder < downloadQueue.length) {
+      let folderInfo = downloadQueue[currentFolder++];
 
-      return downloadFolder(folderInfo).then(getDownloadNextFolderPromise);
+      return downloadElement(folderInfo).then(getDownloadNextElementPromise);
     }
 
     multibar.stop();
     return Promise.resolve();
   }
 
-  function downloadFolder(fileInfo) {
+  function downloadElement(fileInfo) {
     const remotePath = fileInfo.path;
     const localPath = `${__dirname}/${remotePath}`;
+    const localParentPath = `${__dirname}/${fileInfo.parentPath}`;
 
     client.trackProgress((info) => {
       bar = bars[fileInfo.file.name];
@@ -172,20 +172,82 @@ function downloadMedia() {
       client.trackProgress();
     }
 
-    return client
-      .downloadToDir(localPath, remotePath)
-      .then(stopTrackingProgress);
+    if (fileInfo.type === "folder") {
+      return client
+        .downloadToDir(localPath, remotePath)
+        .then(stopTrackingProgress);
+    } else if (fileInfo.type === "file") {
+      return mkdirp(localParentPath).then(() => {
+        return client
+          .downloadTo(localPath, remotePath)
+          .then(stopTrackingProgress);
+      });
+    }
   }
 }
 
 function handleSerie(fileInfo, files) {
   // Serie media: handle individual episode download
-  return Promise.reject("Serie download not supported yet");
+  let seasonPath;
+  let episodeFiles;
+
+  return askSeason().then(getSeasonEpisodes).then(askEpisodeSelect);
+
+  function askSeason() {
+    return inquirer
+      .prompt([
+        {
+          type: "list",
+          message: "What season?",
+          name: "season",
+          choices: files
+            .filter((file) => file.isDirectory && !file.name.startsWith("."))
+            .map((file) => file.name),
+        },
+      ])
+      .then((answers) => {
+        seasonPath = `${fileInfo.path}/${answers.season}`;
+        return seasonPath;
+      });
+  }
+
+  function getSeasonEpisodes(path) {
+    return client.list(path).then((files) => (episodeFiles = files));
+  }
+
+  function askEpisodeSelect() {
+    return inquirer
+      .prompt([
+        {
+          type: "checkbox",
+          message: "Which episodes do you want to download?",
+          name: "episodes",
+          choices: episodeFiles
+            .filter((file) => !file.isDirectory && !file.name.startsWith("."))
+            .map((file) => file.name),
+        },
+      ])
+      .then((answers) => {
+        answers.episodes.forEach((episode) => {
+          let episodeFile = episodeFiles.filter(
+            (file) => file.name === episode
+          )[0];
+          downloadQueue.push({
+            type: "file",
+            path: `${seasonPath}/${episode}`,
+            parentPath: seasonPath,
+            file: episodeFile,
+            size: episodeFile.size,
+          });
+        });
+      });
+  }
 }
 
 function handleMovie(fileInfo, files) {
   // Movie media: download whole folder
-  foldersToDownload.push({
+  downloadQueue.push({
+    type: "folder",
     path: fileInfo.path,
     file: fileInfo.file,
     size: files.reduce(function (a, b) {
@@ -194,7 +256,7 @@ function handleMovie(fileInfo, files) {
   });
 }
 
-function askMediaPreferences(files) {
+function askMediaTypeAndSearchTerm(files) {
   return inquirer.prompt([
     {
       type: "list",
