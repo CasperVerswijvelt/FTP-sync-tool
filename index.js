@@ -4,6 +4,9 @@ const inquirer = require("inquirer");
 const cliProgress = require("cli-progress");
 const mkdirp = require("mkdirp");
 
+// Change this to set the local download directory to something other then current directory
+const downloadDirectory = __dirname;
+
 const client = new ftp.Client();
 const accessOptions = {
   host: "78.22.145.53",
@@ -164,8 +167,8 @@ function downloadMedia() {
 
   function downloadElement(fileInfo) {
     const remotePath = fileInfo.path;
-    const localPath = `${__dirname}/${remotePath}`;
-    const localParentPath = `${__dirname}/${fileInfo.parentPath}`;
+    const localPath = `${downloadDirectory}/${remotePath}`;
+    const localParentPath = `${downloadDirectory}/${fileInfo.parentPath}`;
 
     client.trackProgress((info) => {
       bar = bars[fileInfo.file.name];
