@@ -5,7 +5,7 @@ const cliProgress = require("cli-progress");
 const mkdirp = require("mkdirp");
 
 // Change this to set the local download directory to something other then current directory
-const downloadDirectory = __dirname;
+let downloadDirectory = "./";
 
 const client = new ftp.Client();
 const accessOptions = {
@@ -24,8 +24,10 @@ console.clear();
 
 const downloadQueue = [];
 
-client
-  .access(accessOptions)
+loadConfig()
+  .catch(doNothingLmao)
+  .then(connect)
+  .then(promptDownloadDirectory)
   .then(loopPromptMedia)
   .then(downloadMedia)
   .then(closeClient)
@@ -34,6 +36,51 @@ client
 function onError(e) {
   console.log("Error:", e);
   return closeClient();
+}
+
+function connect() {
+  return client.access(accessOptions);
+}
+
+function doNothingLmao() {
+  // Does nothing xpxppx
+}
+
+function loadConfig() {
+  return new Promise((resolve, reject) => {
+    fs.readFile("config.json", function read(err, data) {
+      if (err) {
+        reject(err);
+      }
+
+      let config;
+      try {
+        config = JSON.parse(data);
+
+        if (config.downloadDirectory) {
+          downloadDirectory = config.downloadDirectory;
+        }
+      } catch (e) {
+        reject(err);
+      }
+      resolve(config);
+    });
+  });
+}
+
+function promptDownloadDirectory() {
+  return inquirer
+    .prompt([
+      {
+        type: "input",
+        message: `Current download directory is '${downloadDirectory}' Do you want to change it? (Just enter to skip)`,
+        name: "dir",
+      },
+    ])
+    .then((answers) => {
+      let dir = answers.dir;
+      if (dir && dir.length > 0) downloadDirectory = dir;
+    });
 }
 
 function loopPromptMedia() {
@@ -167,8 +214,8 @@ function downloadMedia() {
 
   function downloadElement(fileInfo) {
     const remotePath = fileInfo.path;
-    const localPath = `${downloadDirectory}/${remotePath}`;
-    const localParentPath = `${downloadDirectory}/${fileInfo.parentPath}`;
+    const localPath = `${downloadDirectory}${remotePath}`;
+    const localParentPath = `${downloadDirectory}${fileInfo.parentPath}`;
 
     client.trackProgress((info) => {
       bar = bars[fileInfo.file.name];
