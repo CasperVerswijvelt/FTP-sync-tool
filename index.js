@@ -27,8 +27,8 @@ const downloadQueue = [];
 loadConfig()
   .catch(doNothingLmao)
   .then(connect)
-  .then(promptDownloadDirectory)
   .then(loopPromptMedia)
+  .then(promptDownloadDirectory)
   .then(downloadMedia)
   .then(closeClient)
   .catch(onError);
