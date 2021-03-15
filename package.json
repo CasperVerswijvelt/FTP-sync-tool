@@ -12,7 +12,12 @@
   "dependencies": {
     "basic-ftp": "^4.6.2",
     "cli-progress": "^3.8.2",
+    "express": "^4.17.1",
     "inquirer": "^7.3.3",
-    "mkdirp": "^1.0.4"
+    "mkdirp": "^1.0.4",
+    "websocket": "^1.0.33"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.7"
   }
 }

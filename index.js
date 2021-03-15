@@ -1,37 +1,223 @@
 const ftp = require("basic-ftp");
 const fs = require("fs");
-const inquirer = require("inquirer");
-const cliProgress = require("cli-progress");
 const mkdirp = require("mkdirp");
 
-// Change this to set the local download directory to something other then current directory
+const express = require("express");
+const { server } = require("websocket");
+
+const http = require("http")
+const path = require('path');
+
+const inquirer = require("inquirer");
+const cliProgress = require("cli-progress");
+
+const { exit } = require("process");
+
+// Config variables
+
 let downloadDirectory = "./";
+let host = "";
+let user = "";
+let password = "";
+let certPath = ""
+
+// Parse config
+
+let config;
+
+try {
+
+  config = JSON.parse(fs.readFileSync("config.json", { encoding: "utf-8" }))
+
+  if (!isNEString(config.host)) throw "Host cannot be empty"
+
+  host = config.host
+
+  if (!isNEString(config.user)) throw "User cannot be empty"
+
+  user = config.user
+
+  if (!isNEString(config.password)) throw "Password cannot be empty"
+
+  password = config.password
+
+  if (!isNEString(config.certificate)) throw "Certificate path cannot be empty"
+
+  certPath = config.certificate
+
+  if (isNEString(config.downloadDirectory)) {
+
+    downloadDirectory = config.downloadDirectory
+  }
+
+} catch(e) {
+
+  console.log("Config load error:", e)
+  exit(1)
+}
+
+// Ftp client
 
 const client = new ftp.Client();
 const accessOptions = {
-  host: "78.22.145.53",
-  user: "robin",
-  password: "RobinSuckt123",
+  host: host,
+  user: user,
+  password: password,
   secure: true,
   secureOptions: {
-    ca: fs.readFileSync("server-cert.pem", { encoding: "utf-8" }),
+    ca: fs.readFileSync(certPath, { encoding: "utf-8" }),
     checkServerIdentity: () => {
       return undefined;
     },
   },
 };
-console.clear();
 
 const downloadQueue = [];
 
-loadConfig()
-  .catch(doNothingLmao)
-  .then(connect)
-  .then(loopPromptMedia)
-  .then(promptDownloadDirectory)
-  .then(downloadMedia)
-  .then(closeClient)
-  .catch(onError);
+// HTTP Server
+
+const port = process.env.PORT || 3000;
+const app = express();
+const httpServer = http.createServer(app);
+app.use(express.static( __dirname + '/frontend' ));
+httpServer.listen(port, () => {
+  return console.log(`server is listening on ${port}`);
+});
+
+// WebSocket
+
+const connections = [];
+
+const wsServer = new server({
+  httpServer: httpServer,
+  autoAcceptConnections: true,
+});
+
+wsServer.on("connect", (connection) => {
+
+  connections.push(connection)
+
+  sendOverview(connection, downloadDirectory)
+
+  connection.on("message", (message) => {
+  
+    try {
+      const msg = JSON.parse(message.utf8Data)
+
+      switch(msg.action) {
+        case "list":
+          sendOverview(connection, msg.path)
+          break;
+        case "delete":
+          deletePath(connection, msg.path)
+          break;
+        case "download":
+          addToQueue(connection, "not yet implemented")
+          break;
+        case "cancelDownload":
+          sendError(connection, "not yet implemented")
+          break;
+      }
+    } catch (e) {}
+  });
+
+  connection.on("close", (reason, description) => {
+    const index = connections.indexOf(connection);
+    if (index > -1) {
+      connections.splice(index, 1);
+    }
+  })
+});
+
+async function sendOverview(connection, directory) {
+
+  await connect();
+
+  const list = await client.list(directory);
+
+  for (let el of list) {
+    el.path = isNEString(directory) ? directory + "/" + el.name : el.name;
+    el.existsLocally = fs.existsSync(path.join(downloadDirectory, el.path));
+  }
+
+  connection.send(JSON.stringify({
+    type: "list",
+    data: (directory === downloadDirectory ? [] : [{
+      name: "Parent diretory",
+        path: path.dirname(directory),
+        existsLocally: true,
+        type: -1
+    }])
+      .concat(list
+        .filter(el => !el.name.startsWith('.'))
+        .map((el) => {
+          return {
+            name: el.name,
+            path: isNEString(directory) ? directory + "/" + el.name : el.name,
+            existsLocally: fs.existsSync(path.join(downloadDirectory, el.path)),
+            type: el.type
+          }
+        })
+      )
+    }))
+
+  closeClient();
+}
+
+function sendError(connection, error) {
+
+  connection.send(JSON.stringify({
+    type: "error",
+    data: error
+  }))
+}
+
+function deletePath(connection, deletePath) {
+
+  try {
+    if (isNEString(deletePath)) {
+      fs.rmSync(path.join(downloadDirectory, deletePath), {
+        force: true,
+        recursive: true,
+      })
+  
+      connection.send(JSON.stringify({
+        type: "listElement",
+        data: {
+          path: deletePath,
+          existsLocally: false
+        }
+      }))
+    } else {
+      sendError(connection, "Empty delete path")
+    }
+  } catch(e) {
+
+    console.log(e)
+
+    // TODO: log error
+    sendError(connection, e.message)
+  }
+}
+
+function addToQueue(downloadPath) {
+
+  downloadQueue.push({
+    path: downloadPath,
+    progress: 0
+  });
+
+  downloadMedia()
+}
+
+// loadConfig()
+//   .catch(doNothingLmao)
+//   .then(connect)
+//   .then(loopPromptMedia)
+//   .then(promptDownloadDirectory)
+//   .then(downloadMedia)
+//   .then(closeClient)
+//   .catch(onError);
 
 function onError(e) {
   console.log("Error:", e);
@@ -335,6 +521,8 @@ function closeClient() {
   return client.close();
 }
 
+// Util
+
 function formatBytes(bytes) {
   let decimals = 2;
   if (bytes === 0) return "0 Bytes";
@@ -346,4 +534,8 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+}
+
+function isNEString(value) {
+  return typeof(value) === 'string' && value.length > 0
 }
