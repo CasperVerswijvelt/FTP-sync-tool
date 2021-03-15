@@ -5,6 +5,8 @@ const TYPE_PARENT = -1;
 const TYPE_FILE = 1;
 const TYPE_FOLDER = 2;
 
+let currentList;
+
 ws.onmessage = (messageEvent) => {
     try {
         const message = JSON.parse(messageEvent.data);
@@ -14,6 +16,10 @@ ws.onmessage = (messageEvent) => {
                 loadList(message.data)
                 break;
             case "listElement":
+                loadListElement(message.data)
+                break;
+            case "error":
+                showError(message.data)
                 break;
         }
     } catch (e) {
@@ -44,6 +50,8 @@ function deletePath(path) {
 
 function loadList(data) {
     if (!Array.isArray(data)) return;
+
+    currentList = data
 
     const body = document.getElementById("explorer-body");
 
@@ -83,8 +91,11 @@ function loadList(data) {
 
         deleteAction.onclick = (event) => {
             event.stopPropagation();
-            if (element.existsLocally) 
-                deletePath(element.path)
+            if (element.existsLocally) {
+                if (confirm(`Are you sure you want to delete '${element.path}'?`)) {
+                    deletePath(element.path)
+                }
+            }
         }
 
         tr.onclick = () => {
@@ -94,4 +105,35 @@ function loadList(data) {
 
         body.appendChild(tr)
     }
+}
+
+function loadListElement(data) {
+
+    if (!data || !Array.isArray(currentList)) return;
+
+    for (let element of currentList) {
+        if (element.path === data.path) {
+            element.existsLocally = data.existsLocally
+        }
+    }
+
+    loadList(currentList);
+}
+
+function showError(data) {
+
+    if (!data) return;
+
+    const oldError = document.getElementById("error");
+
+    if (oldError) document.body.removeChild(oldError)
+
+    const errorEl = document.createElement("div");
+    errorEl.id = "error";
+    
+    const date = new Date();
+    errorEl.textContent = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()} - ${data}`;
+
+    document.body.appendChild(errorEl)
+
 }

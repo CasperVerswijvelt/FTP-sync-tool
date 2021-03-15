@@ -1,7 +1,34 @@
+body, html, * {
+    font-family: sans-serif;
+}
+
 .cursor {
     cursor: pointer;
 }
 
 table {
     user-select: none;
+}
+
+#error {
+    position: absolute;
+    right: 20px;
+    bottom: 20px;
+    width: auto;
+    padding: 10px;
+    height: auto;
+
+    background-color: rgb(255, 56, 56);
+    color: white;
+    border-radius: 7px;
+    font-size: 1.2em;
+
+    animation: hide 0s linear 5s forwards;
+    animation-fill-mode: forwards;
+}
+
+@keyframes hide {
+    to {
+        opacity:0;
+    }
 }

@@ -112,7 +112,7 @@ wsServer.on("connect", (connection) => {
           deletePath(connection, msg.path)
           break;
         case "download":
-          addToQueue(connection, "not yet implemented")
+          sendError(connection, "not yet implemented")
           break;
         case "cancelDownload":
           sendError(connection, "not yet implemented")
