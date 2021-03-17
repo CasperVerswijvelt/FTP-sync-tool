@@ -53,7 +53,7 @@ function connectWebSocket() {
     ws.onopen = () => {
         console.log('Connected to WebSocket');
         if (!currentList) listPath('')
-        if (!currentQueue) listQueue()
+        listQueue()
     }
 }
 
@@ -108,19 +108,20 @@ function loadList(data) {
         const deleteAction = document.createElement("td");
         const downloadAction = document.createElement("td");
 
-        exists.textContent = element.existsLocally ? "✅" : "❌";
+        exists.textContent = element.type !== TYPE_PARENT ? element.existsLocally ? "✅" : "❌" : "";
         type.textContent = element.type === TYPE_FILE ? "📄" : element.type === TYPE_FOLDER ? "📁" : element.type === TYPE_PARENT ? "⬆️" : "❓";
         name.textContent = element.name;
         name.title = element.path
         deleteAction.textContent = "🗑️";
         downloadAction.textContent = "💾"
 
-        tr.classList.add("cursor")
-
         tr.appendChild(exists)
         tr.appendChild(type)
         tr.appendChild(name)
-        if (element.type !== TYPE_PARENT) tr.appendChild(element.existsLocally ? deleteAction : downloadAction);
+        if (element.type !== TYPE_PARENT) 
+            tr.appendChild(element.existsLocally ? deleteAction : downloadAction);
+        else
+            name.colSpan = 2;
 
         downloadAction.onclick = (event) => {
             event.stopPropagation();
@@ -166,19 +167,34 @@ function loadQueue(data) {
 
     const body = document.getElementById("queue");
 
-    console.log(body)
-
     if (!body) return;
 
     while(body.firstChild) body.removeChild(body.firstChild);
 
     for (let element of data) {
 
-        const ul = document.createElement("ul");
-        ul.innerText = `${element.name}: ${element.progressUi}/${element.sizeUi}`;
-        ul.title = element.path;
+        const tr = document.createElement("tr");
 
-        body.appendChild(ul)
+        const name = document.createElement("td");
+        const progressbar = document.createElement("td");
+        const progress = document.createElement("td");
+        const total = document.createElement("td");
+        const cancelButton = document.createElement("td");
+
+        name.innerText = element.name;
+        name.title = element.path;
+        progress.innerText = element.progressUi;
+        progress.title = element.progress;
+        total.innerText = element.sizeUi;
+        total.title = element.size;
+        cancelButton.innerText = "❌"
+
+        tr.appendChild(name);
+        tr.appendChild(progress);
+        tr.appendChild(total);
+        tr.appendChild(cancelButton);
+
+        body.appendChild(tr);
     }
 }
 
