@@ -5,13 +5,40 @@ body, html, * {
     box-sizing: border-box;
 }
 
+body {
+    background-color: rgb(241, 241, 241);
+    max-width: 800px;
+    margin: auto;
+}
+
+header {
+    margin: 20px;
+}
+
+header h1 {
+    border-bottom: solid gainsboro 1px;
+    padding-bottom: 10px;
+}
+
+h1 .small {
+    font-size: 0.4em;
+    font-style: italic;
+    color: gray;
+    font-weight: lighter;
+}
+
+h2 {
+    margin: 20px;
+    color: rgb(46, 46, 46);
+}
+
 /* Table */
 .sexy-table {
     width: calc(100% - 40px);
     margin: 20px;
     border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 8px 16px 0 rgba(0,0,0,0.2);
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.1);
 }
 
 .sexy-table table {
@@ -19,21 +46,28 @@ body, html, * {
     user-select: none;
     border: none;
     border-collapse: collapse;
+    background-color: white;
+    display: flex;
+    flex-direction: column;
 }
 
-.sexy-table tbody tr {
+.sexy-table tr {
     cursor: pointer;
     transition: background-color 0.5s;
+    display: flex;
 }
 
-.sexy-table tbody tr:hover {
+.sexy-table tr:hover {
     background-color: #0000001a;
     transition: none;
 }
 
 .sexy-table td {
-    width: 30px;
+    flex: 0 0 20px;
     padding: 8px 3px;
+    white-space: nowrap;
+    box-sizing: content-box;
+    line-height: 1.2;
 }
 
 .sexy-table td:first-child {
@@ -52,26 +86,37 @@ body, html, * {
     padding-bottom: 10px;
 }
 
+/* Specific table styling */
+
 #explorer td:nth-child(3) {
-    max-width: 99%;
-    width: unset;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-#queue td:first-child {
-    max-width: 99%;
-    width: unset;
+#explorer .size {
+    flex: 0 1;
 }
 
-#queue td:nth-child(2),
-#queue td:nth-child(3) {
-    width: 90px;
+#queue td:nth-child(2) {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#queue td:nth-child(3),
+#queue td:nth-child(4) {
+    flex-basis: 95px;
 }
 
 /* Error */
 #error {
-    position: absolute;
+    position: fixed;
     right: 20px;
     bottom: 20px;
+    left: 20px;
     width: auto;
     padding: 10px;
     height: auto;

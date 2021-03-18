@@ -9,9 +9,6 @@ const { server } = require("websocket");
 const http = require("http")
 const path = require('path');
 
-const inquirer = require("inquirer");
-const cliProgress = require("cli-progress");
-
 const { exit } = require("process");
 
 // Config variables
@@ -21,6 +18,7 @@ let host = "";
 let user = "";
 let password = "";
 let certPath = ""
+let folderSizeDepth = 5;
 
 // Parse config
 
@@ -51,6 +49,11 @@ try {
     downloadDirectory = config.downloadDirectory
   }
 
+  if (typeof config.folderSizeDepth === 'number') {
+
+    folderSizeDepth = config.folderSizeDepth;
+  }
+
 } catch (e) {
 
   console.log("Config load error:", e)
@@ -61,7 +64,6 @@ downloadDirectory = getCleanPath(downloadDirectory)
 
 // Ftp client
 
-const browseClient = new ftp.Client();
 const downloadClient = new ftp.Client();
 const accessOptions = {
   host: host,
@@ -136,13 +138,13 @@ wsServer.on("connect", (connection) => {
           deletePath(connection, msg.path)
           break;
         case "download":
-          addToQueue(msg.path)
+          addToQueue(connection, msg.path)
           break;
         case "listQueue":
           sendQueueList();
           break;
-        case "cancelDownload":
-          sendError(connection, "not yet implemented")
+        case "cancelQueueElement":
+          cancelQueueElement(connection, msg.path);
           break;
       }
     } catch (e) { }
@@ -165,9 +167,14 @@ async function listPath(connection, directory) {
 
   directory = directory ? getCleanPath(directory) : ''
 
-  await connectBrowseClient();
-  const list = await browseClient.list(directory.replace(/\\/g, '/'));
-  closeBrowseClient();
+  let list;
+  try {
+    list = await listFtp(directory.replace(/\\/g, '/'));
+  } catch (e) {
+    console.error(e);
+    sendError("FTP Error: " + e.message)
+    return;
+  }
 
   const mappedList = list
     .filter(el => !el.name.startsWith('.'))
@@ -176,22 +183,21 @@ async function listPath(connection, directory) {
         name: el.name,
         path: getCleanPath(path.join(directory ? directory : '', el.name)),
         existsLocally: fs.existsSync(path.join(downloadDirectory, getCleanPath(path.join(directory ? directory : '', el.name)))),
-        type: el.type
+        type: el.type,
+        size: el.size
       }
-    })
+    });
 
   connection.send(JSON.stringify({
     type: "list",
     data: (directory === downloadDirectory ? [] : [{
-      name: "Parent diretory",
+      name: "Parent directory",
       path: path.dirname(directory) ? path.dirname(directory) : '',
       existsLocally: true,
       type: -1
     }])
       .concat(mappedList)
-  }))
-
-  await closeBrowseClient();
+  }));
 }
 
 function sendError(connection, error) {
@@ -208,22 +214,17 @@ function sendErrorToAll(error) {
     type: "error",
     data: error
   })))
-
-  connection?.send(JSON.stringify({
-    type: "error",
-    data: error
-  }))
 }
 
 function deletePath(connection, deletePath) {
 
   if (!isNEString(deletePath)) {
-    sendError(connection, "Empty delete path");
+    sendError(connection, "Delete error: empty delete path");
     return;
   }
 
   if (!checkPathSafe(deletePath)) {
-    sendError(connection, "Invalid delete path")
+    sendError(connection, "Delete error: invalid delete path")
     return;
   }
 
@@ -234,49 +235,122 @@ function deletePath(connection, deletePath) {
     })
 
   } catch (e) {
-
-    console.log(e)
-
-    // TODO: log error
+    console.error(e)
     sendError(connection, e.message)
   }
 }
 
-async function addToQueue (addToQueuePath) {
+// Download queue
+
+async function addToQueue (connection, addToQueuePath) {
 
   if (!checkPathSafe(addToQueuePath)) {
-    sendError(connection, "Invalid download path")
+    sendError(connection, "Queue add error: invalid download path")
     return;
   }
 
   const cleanPath = getCleanPath(addToQueuePath);
   const ftpParentPath = path.dirname(cleanPath).replace(/\\/g, '/');
   const ftpBaseName = path.basename(cleanPath);
-  const ftpPath = cleanPath.replace(/\\/g, '/');
 
-  await connectBrowseClient();
+  if (downloadQueue.find(el => el.path == cleanPath)) {
+    sendError(connection, "Queue add error: element already in queue")
+    return;
+  }
 
-  const list = await browseClient.list(ftpParentPath);
-  const file = list.find(el => el.name === ftpBaseName);
-  const size = await browseClient.size(ftpPath).catch(() => 0)
+  let file
 
-  closeBrowseClient();
+  try {
+    const list = await listFtp(ftpParentPath);
+    file = list.find(el => el.name === ftpBaseName);
+
+  } catch (e) {
+    console.error(e);
+    sendError(connection, "Queue add error: FTP Error - " + e.message)
+    return;
+  }
   
   if (file) {
     const queueElement = {
       path: getCleanPath(addToQueuePath),
       name: path.basename(getCleanPath(addToQueuePath)),
-      fileType: file?.type,
-      size: size,
-      progress: 0
+      type: file?.type,
+      size: 0,
+      progress: 0,
+      isDownloading: false
     };
-    queueElement.progressUi = formatBytes(queueElement.progress)
-    queueElement.sizeUi = formatBytes(queueElement.size)
-    downloadQueue.push(queueElement)
-    sendQueueList();
 
+    downloadQueue.push(queueElement)
+
+    sendQueueList();
     startQueue();
-  } 
+
+    calculateFTPSize(file, queueElement)
+  } else {
+    sendError(connection, "Queue add error: could not determine file type")
+  }
+}
+
+async function calculateFTPSize(file, queueElement) {
+
+  const browseClient = new ftp.Client()
+  await browseClient.access(accessOptions);
+
+  let size
+  const elPath = queueElement.path.replace(/\\/g, '/');
+
+  try {
+
+    if (file.type === 1) {
+      size = await browseClient.size(elPath);
+      browseClient.close();
+      queueElement.size = size;
+      sendQueueElement(queueElement)
+    } else if (file.type === 2) {
+
+      const updateSizeIntervalId = setInterval(() => {
+        sendQueueElement(queueElement)
+      }, 1000)
+      
+      getFolderSize(elPath, 0, queueElement).then(() => {
+        clearInterval(updateSizeIntervalId);
+        sendQueueElement(queueElement)
+        browseClient.close();
+      }).catch((e) => {
+        clearInterval(updateSizeIntervalId);
+        sendErrorToAll("Queue error: Could not determine queue element size of folder: " + e)
+        console.error(e)
+      })
+    } else {
+      sendErrorToAll("Queue error: Could not determine queue element size for non folder and non file type")
+    }
+  } catch (e) {
+    browseClient.close();
+    console.error(e);
+    sendErrorToAll("Queue error: Could not determine queue element size - " + e.message)
+    return;
+  }
+
+  async function getFolderSize(folderPath, level, queueElement) {
+
+    let size = 0;
+
+    if (level > folderSizeDepth)
+      return 0;
+
+    const list = await browseClient.list(folderPath);
+
+    for (let element of list) {
+
+      const elPath = path.join(folderPath, element.name).replace(/\\/g, '/');
+
+      if (element.type === 1) {
+        queueElement.size += element.size;
+      } else if (element.type === 2) {
+        await getFolderSize(elPath, level + 1, queueElement);
+      }
+    }
+  }
 }
 
 function startQueue() {
@@ -292,6 +366,8 @@ function startQueue() {
     const queueElement = downloadQueue [0];
 
     if (queueElement) {
+      queueElement.isDownloading = true;
+      sendQueueElement(queueElement);
       return downloadQueueElement(queueElement).then(getDownloadNextElementPromise);
     }
 
@@ -313,9 +389,6 @@ async function downloadQueueElement(queueElement) {
     downloadClient.trackProgress((info) => {
       if (info.type === "download") {
         queueElement.progress = info.bytesOverall
-
-        queueElement.progressUi = formatBytes(queueElement.progress)
-        queueElement.sizeUi = formatBytes(queueElement.size)
         sendQueueElement(queueElement);
       }
     });
@@ -325,10 +398,10 @@ async function downloadQueueElement(queueElement) {
     }
 
     await connectDownloadClient();
-    if (queueElement.fileType === 2) {
+    if (queueElement.type === 2) {
       await downloadClient.downloadToDir(localPath, ftpPath)
       stopTrackingProgress();
-    } else if (queueElement.fileType === 1) {
+    } else if (queueElement.type === 1) {
       await  mkdirp(localParentPath)
       await downloadClient.downloadTo(localPath, ftpPath)
       stopTrackingProgress();
@@ -339,7 +412,8 @@ async function downloadQueueElement(queueElement) {
   } catch (e) {
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1)
     sendQueueList();
-    connections.forEach(connection => sendError(connection, "Error downloading " + queueElement?.path))
+    sendErrorToAll("FTP Download error for '" + queueElement?.path + "': " + e)
+    console.error(e);
   }
 }
 
@@ -359,15 +433,25 @@ function sendQueueElement(queuElement) {
   })));
 }
 
+function cancelQueueElement(connection, cancelPath) {
+  const cleanPath = getCleanPath(cancelPath);
+  const queueElement = downloadQueue.find(el => el.path === cleanPath);
+
+  if (queueElement) {
+    const index = downloadQueue.indexOf(queueElement);
+
+    if (queueElement.isDownloading) {
+      sendError(connection, "Queue cancel error: can't cancel downloading item");
+    } else {
+      downloadQueue.splice(index, 1);
+      sendQueueList();
+    }
+  } else {
+    sendError(connection, "Queue cancel error: element not in queue");
+  }
+}
+
 // FTP client actions
-
-function connectBrowseClient() {
-  return browseClient.access(accessOptions);
-}
-
-function closeBrowseClient() {
-  browseClient.close();
-}
 
 function connectDownloadClient() {
   return downloadClient.access(accessOptions);
@@ -377,22 +461,19 @@ function closeDownloadClient() {
   return downloadClient.close();
 }
 
-
+async function listFtp(listPath) {
+  
+  const client = new ftp.Client();
+  await client.access(accessOptions);
+  try {
+    return client.list(listPath);
+  } catch (e) {
+    client.close();
+    throw e;
+  }
+}
 
 // Util
-
-function formatBytes(bytes) {
-  let decimals = 2;
-  if (bytes === 0) return "0 Bytes";
-
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
-}
 
 function isNEString(value) {
   return typeof (value) === 'string' && value.length > 0
