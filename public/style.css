@@ -158,14 +158,11 @@ section {
 
 @keyframes hide {
     0% {
-        opacity :1;
-    }
-    99% {
-        opacity:0;
-        visibility: visible;
+        opacity: 1;
     }
     100% {
-        visibility: hidden;
+        opacity:0;
+        pointer-events: none;
     }
 }
 

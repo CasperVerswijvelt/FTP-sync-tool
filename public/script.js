@@ -46,6 +46,7 @@ function connectWebSocket() {
         ws = null;
         console.log('WebSocket connection closed. Reconnecting in 1 second...', e.reason);
         setTimeout(connectWebSocket, 1000);
+        showMessage("Lost connection to backend", true);
     }
 
     ws.onerror = (err) => {
@@ -54,7 +55,7 @@ function connectWebSocket() {
     }
 
     ws.onopen = () => {
-        console.log('Connected to WebSocket');
+        showMessage("Connected to backend", false);
         if (!currentList) listPath('');
         listQueue();
     }
