@@ -2,3 +2,5 @@ node_modules
 Movies
 Series
 config.json
+/*.pem
+dist/

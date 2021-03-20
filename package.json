@@ -1,13 +1,14 @@
 {
-  "name": "CasperMediaLeecher",
+  "name": "ftp-file-sync",
   "version": "1.0.0",
-  "description": "Vuile leecher",
-  "main": "index.js",
+  "description": "Sync files from a ftp server to your server trough a clean web UI.",
+  "main": "src/index.js",
+  "bin": "src/index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/index.js",
+    "build": "pkg . --out-path dist/"
   },
-  "author": "",
+  "author": "Casper verswijvelt",
   "license": "ISC",
   "dependencies": {
     "basic-ftp": "^4.6.2",
@@ -19,6 +20,11 @@
     "websocket": "^1.0.33"
   },
   "devDependencies": {
-    "nodemon": "^2.0.7"
+    "nodemon": "^2.0.7",
+    "pkg": "^4.4.9"
+  },
+  "pkg": {
+    "scripts": "src/**/*.js",
+    "assets": "public/**"
   }
 }

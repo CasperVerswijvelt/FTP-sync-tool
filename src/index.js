@@ -107,7 +107,8 @@ chokidar.watch(downloadDirectory, {ignoreInitial: true}).on('all', (event, path)
 const port = process.env.PORT || 3000;
 const app = express();
 const httpServer = http.createServer(app);
-app.use(express.static(__dirname + '/frontend'));
+app.use(express.static(path.join(path.resolve(path.dirname(__dirname)), 'public')));
+console.log(path.join(path.resolve(path.dirname(__dirname)), 'public'));
 httpServer.listen(port, () => {
   return console.log(`server is listening on ${port}`);
 });
