@@ -1,4 +1,4 @@
-import { Client, FileInfo, AccessOptions } from "basic-ftp";
+import { Client, FileInfo, AccessOptions, FileType } from "basic-ftp";
 import fs from "fs";
 import mkdirp from "mkdirp";
 import chokidar from "chokidar";
@@ -175,7 +175,7 @@ wsServer.on("connect", (connection) => {
           break;
       }
     } catch (e) {
-      sendError(connection, "Action error: could not parse message - " + e);
+      sendError(connection, `Action error: could not parse message (${e}) `);
     }
   });
 
@@ -200,7 +200,7 @@ async function listPath(connection: connection, directory: string) {
     list = await listFtp(directory.replace(/\\/g, "/"));
   } catch (e) {
     console.error(e);
-    sendError(connection, "FTP Error: " + e.message);
+    sendError(connection, `List error: ${e}`);
     return;
   }
 
@@ -265,24 +265,20 @@ function deletePath(connection: connection, deletePath: string) {
     return;
   }
 
-  if (!checkPathSafe(deletePath)) {
+  const cleanPath = getCleanPath(deletePath);
+
+  if (!checkPathSafe(cleanPath)) {
     sendError(connection, "Delete error: invalid delete path");
     return;
   }
 
-  const actualDeletePath = path.join(downloadDirectory, deletePath);
+  const actualDeletePath = path.join(downloadDirectory, cleanPath);
 
   try {
-    if (fs.lstatSync(actualDeletePath).isDirectory()) {
-      fs.rmdirSync(actualDeletePath, {
-        recursive: true,
-      });
-    } else {
-      fs.unlinkSync(actualDeletePath);
-    }
+    rmSync(actualDeletePath);
   } catch (e) {
     console.error(e);
-    sendError(connection, e.message);
+    sendError(connection, `Delete error for ${cleanPath} (${e})`);
   }
 }
 
@@ -310,7 +306,7 @@ async function addToQueue(connection: connection, addToQueuePath: string) {
     file = list.find((el) => el.name === ftpBaseName);
   } catch (e) {
     console.error(e);
-    sendError(connection, "Queue add error: FTP Error - " + e.message);
+    sendError(connection, `Queue add error: could not get file details (${e})`);
     return;
   }
 
@@ -344,7 +340,7 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
   const elPath = queueElement.path.replace(/\\/g, "/");
 
   try {
-    if (file.type === 1) {
+    if (file.type === FileType.File) {
       size = await browseClient.size(elPath);
       browseClient.close();
       queueElement.size = size;
@@ -357,7 +353,7 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
           },
         })
       );
-    } else if (file.type === 2) {
+    } else if (file.type === FileType.Directory) {
       const updateSizeIntervalId = setInterval(() => {
         sendToAll(
           JSON.stringify({
@@ -386,7 +382,7 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
         })
         .catch((e) => {
           clearInterval(updateSizeIntervalId);
-          sendErrorToAll("Queue error: Could not determine queue element size of folder: " + e);
+          sendErrorToAll(`Queue error: Could not determine queue element size of folder (${e})`);
           console.error(e);
         });
     } else {
@@ -395,7 +391,7 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
   } catch (e) {
     browseClient.close();
     console.error(e);
-    sendErrorToAll("Queue error: Could not determine queue element size - " + e.message);
+    sendErrorToAll(`Queue error: Could not determine queue element size (${e}) `);
     return;
   }
 
@@ -407,9 +403,9 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
     for (const element of list) {
       const elPath = path.join(folderPath, element.name).replace(/\\/g, "/");
 
-      if (element.type === 1) {
+      if (element.type === FileType.File) {
         queueElement.size += element.size;
-      } else if (element.type === 2) {
+      } else if (element.type === FileType.Directory) {
         await getFolderSize(elPath, level + 1, queueElement);
       }
     }
@@ -446,14 +442,13 @@ function startQueue() {
 }
 
 async function downloadQueueElement(queueElement: QueueElement) {
+  const downloadPath = queueElement.path;
+  const localPath = path.join(downloadDirectory, downloadPath);
+  const localParentPath = path.dirname(localPath);
+  const cleanPath = getCleanPath(downloadPath);
+  const ftpPath = cleanPath.replace(/\\/g, "/");
+
   try {
-    const downloadPath = queueElement.path;
-
-    const localPath = path.join(downloadDirectory, downloadPath);
-    const localParentPath = path.dirname(localPath);
-    const cleanPath = getCleanPath(downloadPath);
-    const ftpPath = cleanPath.replace(/\\/g, "/");
-
     downloadClient.trackProgress((info) => {
       if (info.type === "download") {
         queueElement.progress = info.bytesOverall;
@@ -490,8 +485,14 @@ async function downloadQueueElement(queueElement: QueueElement) {
     sendQueueList();
 
     if (!queueElement.isCancelled) {
-      sendErrorToAll("FTP Download error for '" + queueElement?.path + "': " + e);
+      sendErrorToAll(`Download error for '${queueElement?.path}' (${e}`);
       console.error(e);
+    } else {
+      try {
+        rmSync(localPath);
+      } catch (e) {
+        sendErrorToAll(`Queue cancel error: could not remove file remnants for ${queueElement.path} (${e})'`);
+      }
     }
   }
 }
@@ -578,4 +579,14 @@ function getCleanPath(uncleanPath: string) {
 
 function getRelativePath(absolutePath: string) {
   return path.relative(downloadDirectory, absolutePath);
+}
+
+function rmSync(deletePath: string) {
+  if (fs.statSync(deletePath).isDirectory()) {
+    fs.rmdirSync(deletePath, {
+      recursive: true,
+    });
+  } else {
+    fs.unlinkSync(deletePath);
+  }
 }
