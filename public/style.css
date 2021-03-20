@@ -99,6 +99,10 @@ h2 {
     flex: 0 1;
 }
 
+#explorer .size.incomplete {
+    color: rgb(199 0 0);
+}
+
 #queue td:nth-child(3) {
     flex: 1;
     overflow: hidden;

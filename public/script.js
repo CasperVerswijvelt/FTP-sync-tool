@@ -124,7 +124,15 @@ function loadList(data) {
         name.textContent = element.name;
         name.title = element.path
         size.textContent = formatBytes(element.size ? element.size : 0);
-        size.classList.add("size")
+        size.classList.add("size");
+        if (element.existsLocally) {
+            size.title = `Size on disk: ${formatBytes(element.localSize)}`;
+
+            if (element.size !== element.localSize) {
+                size.classList.add('incomplete');
+                size.title += ', file incomplete'
+            }
+        }
         deleteAction.textContent = "🗑️";
         downloadAction.textContent = "💾"
 
@@ -173,8 +181,17 @@ function loadListElement(data) {
     if (!data || !Array.isArray(currentList)) return;
 
     for (let element of currentList) {
+
         if (element.path === data.path) {
-            element.existsLocally = data.existsLocally
+
+            if (typeof data.existsLocally === 'boolean') {
+                element.existsLocally = data.existsLocally;
+            }
+
+            if (typeof data.localSize === 'number') {
+                console.log(data.localSize);
+                element.localSize = data.localSize;
+            }
         }
     }
 
@@ -247,11 +264,21 @@ function loadQueueElement(data) {
 
     for (let element of currentQueue) {
         if (element.path === data.path) {
-            element.progress = data.progress;
-            element.progressUi = formatBytes(data.progress);
-            element.isDownloading = data.isDownloading;
-            element.size = data.size;
-            element.sizeUi = formatBytes(data.size);
+
+
+            if (typeof data.progress === 'number') {
+                element.progress = data.progress;
+                element.progressUi = formatBytes(data.progress);
+            }
+
+            if (typeof data.isDownloading === 'boolean') {
+                element.isDownloading = data.isDownloading;
+            }
+
+            if (typeof data.size === 'number') {
+                element.size = data.size;
+                element.sizeUi = formatBytes(data.size);
+            }
         }
     }
 
@@ -385,7 +412,7 @@ function getFileTypeExtensionIcon(filePath) {
             case "raw":
             case "rf64":
                 return "🗄️"
-            
+
         }
     }
 
