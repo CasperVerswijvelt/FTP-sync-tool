@@ -8,6 +8,7 @@ const TYPE_FOLDER = 2;
 let currentList;
 let currentQueue;
 
+loadTheme();
 connectWebSocket();
 
 function connectWebSocket() {
@@ -61,6 +62,10 @@ function connectWebSocket() {
         listQueue();
         document.getElementById("disconnected").classList.add("hide")
     }
+}
+
+function loadTheme() {
+
 }
 
 function listPath(path) {
@@ -292,7 +297,16 @@ function getDOMElementForQueueElement(queueElement) {
 
 function toggleDarkMode(force) {
 
-    document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') !== 'dark' ? 'dark' : 'light');
+    document.documentElement.setAttribute(
+        'data-theme',
+        typeof force === 'boolean'
+            ? force
+                ? "dark"
+                : "light"
+            : document.documentElement.getAttribute('data-theme') !== 'light'
+                ? 'light'
+                : 'dark'
+    );
 }
 
 // Update single queue element in UI
@@ -343,7 +357,7 @@ function showMessage(data, isError) {
 
     messagesContainer.appendChild(errorEl);
 
-    while(messagesContainer.childElementCount > 50) {
+    while (messagesContainer.childElementCount > 50) {
         messagesContainer.removeChild(messagesContainer.firstChild);
     }
 }
