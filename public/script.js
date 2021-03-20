@@ -47,6 +47,7 @@ function connectWebSocket() {
         console.log('WebSocket connection closed. Reconnecting in 1 second...', e.reason);
         setTimeout(connectWebSocket, 1000);
         showMessage("Lost connection to backend", true);
+        document.getElementById("disconnected").classList.remove("hide")
     }
 
     ws.onerror = (err) => {
@@ -58,6 +59,7 @@ function connectWebSocket() {
         showMessage("Connected to backend", false);
         if (!currentList) listPath('');
         listQueue();
+        document.getElementById("disconnected").classList.add("hide")
     }
 }
 
@@ -286,6 +288,11 @@ function getDOMElementForQueueElement(queueElement) {
     tr.appendChild(cancelButton);
 
     return tr;
+}
+
+function toggleDarkMode(force) {
+
+    document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') !== 'dark' ? 'dark' : 'light');
 }
 
 // Update single queue element in UI
