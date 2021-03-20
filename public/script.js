@@ -198,12 +198,15 @@ function loadQueue(data) {
 
         const tr = document.createElement("tr");
 
+        const state = document.createElement("td")
         const type = document.createElement("td");
         const name = document.createElement("td");
         const progress = document.createElement("td");
         const total = document.createElement("td");
         const cancelButton = document.createElement("td");
 
+        state.innerText = element.isDownloading ? "⬇️" : "⌛";
+        state.title = element.isDownloading ? "Item is downloading" : "Item is queued";
         type.innerText = getFileTypeIcon(element.type, element.name)
         name.innerText = element.name;
         name.title = element.path;
@@ -213,6 +216,7 @@ function loadQueue(data) {
         total.title = element.size;
         cancelButton.innerText = "❌"
 
+        tr.appendChild(state);
         tr.appendChild(type);
         tr.appendChild(name);
         tr.appendChild(progress);

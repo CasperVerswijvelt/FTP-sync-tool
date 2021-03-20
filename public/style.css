@@ -99,7 +99,7 @@ h2 {
     flex: 0 1;
 }
 
-#queue td:nth-child(2) {
+#queue td:nth-child(3) {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
