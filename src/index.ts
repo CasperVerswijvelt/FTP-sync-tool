@@ -20,43 +20,63 @@ let downloadDirectory = "./";
 let host = "";
 let user = "";
 let password = "";
-let certPath = "";
 let folderSizeDepth = 5;
 let checkServerIdentity = true;
+
+// Ftp client and access options
+
+const downloadClient = new Client();
+const accessOptions: AccessOptions = {
+  host: host,
+  user: user,
+  password: password,
+  secure: true,
+  secureOptions: {},
+};
 
 // Parse config
 
 let config;
 
 try {
+
   config = JSON.parse(fs.readFileSync("config.json", { encoding: "utf-8" }));
 
-  if (!isNEString(config.host)) throw "Host cannot be empty";
+  // Host: required
 
+  if (!isNEString(config.host)) throw "Host cannot be empty";
   host = config.host;
 
-  if (!isNEString(config.user)) throw "User cannot be empty";
+  // Username: required
 
+  if (!isNEString(config.user)) throw "User cannot be empty";
   user = config.user;
 
-  if (!isNEString(config.password)) throw "Password cannot be empty";
+  // Password: required
 
+  if (!isNEString(config.password)) throw "Password cannot be empty";
   password = config.password;
 
-  if (!isNEString(config.certificate)) throw "Certificate path cannot be empty";
+  // Certificate: optional [none]
+  if (isNEString(config.certificate)) {
+    accessOptions.secureOptions.ca = fs.readFileSync(config.certificate, { encoding: "utf-8" });
+  }
 
-  certPath = config.certificate;
-
+  // Local downloaddiretory: optional ['./']
   if (isNEString(config.downloadDirectory)) {
     downloadDirectory = config.downloadDirectory;
   }
 
+  // Folder size depth: optional [5]
   if (typeof config.folderSizeDepth === "number") {
     folderSizeDepth = config.folderSizeDepth;
   }
 
-  if (typeof config.checkServerIdentity === "boolean") {
-    checkServerIdentity = config.checkServerIdentity;
+  // Check server identity: optional [true]
+  if (config.checkServerIdentity === "false") {
+    accessOptions.secureOptions.checkServerIdentity = (): Error => {
+      return null;
+    };
   }
 } catch (e) {
   console.log("Config load error:", e);
@@ -65,24 +85,7 @@ try {
 
 downloadDirectory = path.resolve(downloadDirectory);
 
-// Ftp client
-
-const downloadClient = new Client();
-const accessOptions: AccessOptions = {
-  host: host,
-  user: user,
-  password: password,
-  secure: true,
-  secureOptions: {
-    ca: fs.readFileSync(certPath, { encoding: "utf-8" }),
-  },
-};
-
-if (checkServerIdentity === false) {
-  accessOptions.secureOptions.checkServerIdentity = (): Error => {
-    return null;
-  };
-}
+// Queue
 
 const downloadQueue: QueueElement[] = [];
 
