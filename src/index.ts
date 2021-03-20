@@ -109,13 +109,12 @@ chokidar
 function onFile(changedFilePath: string, added: boolean) {
   const size = added
     ? (() => {
-      try {
-        console.log(fs.statSync(changedFilePath).size)
-        return fs.statSync(changedFilePath).size;
-      } catch (e) {
-        return 0;
-      }
-    })()
+        try {
+          return fs.statSync(changedFilePath).size;
+        } catch (e) {
+          return 0;
+        }
+      })()
     : 0;
   const relativePath = getRelativePath(changedFilePath);
   const message = JSON.stringify({
@@ -255,9 +254,7 @@ function sendErrorToAll(error: unknown) {
     type: "error",
     data: error,
   });
-  connections.forEach((connection) =>
-    connection.send(message)
-  );
+  connections.forEach((connection) => connection.send(message));
 }
 
 function deletePath(connection: connection, deletePath: string) {
@@ -458,9 +455,7 @@ function sendQueueList() {
     type: "queue",
     data: downloadQueue,
   });
-  connections.forEach((connection) =>
-    connection.send(message)
-  );
+  connections.forEach((connection) => connection.send(message));
 }
 
 function sendQueueElement(queuElement: QueueElement) {
@@ -468,9 +463,7 @@ function sendQueueElement(queuElement: QueueElement) {
     type: "queueElement",
     data: queuElement,
   });
-  connections.forEach((connection) =>
-    connection.send(message)
-  );
+  connections.forEach((connection) => connection.send(message));
 }
 
 function cancelQueueElement(connection: connection, cancelPath: string) {

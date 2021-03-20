@@ -108,70 +108,82 @@ function loadList(data) {
 
     while (body.firstChild) body.removeChild(body.firstChild);
 
-    for (let element of data) {
+    data.forEach((element) => {
+        body.appendChild(getDOMElementForListElement(element))
+    })
+}
 
-        const tr = document.createElement("tr");
+function getDOMElementForListElement(listElement) {
 
-        const exists = document.createElement("td");
-        const type = document.createElement("td");
-        const name = document.createElement("td");
-        const size = document.createElement("td");
-        const deleteAction = document.createElement("td");
-        const downloadAction = document.createElement("td");
+    const tr = document.createElement("tr");
 
-        exists.textContent = element.type !== TYPE_PARENT ? element.existsLocally ? "✅" : "❌" : "";
-        type.textContent = getFileTypeIcon(element.type, element.name);
-        name.textContent = element.name;
-        name.title = element.path
-        size.textContent = formatBytes(element.size ? element.size : 0);
-        size.classList.add("size");
-        if (element.existsLocally) {
-            size.title = `Size on disk: ${formatBytes(element.localSize)}`;
+    const exists = document.createElement("td");
+    const type = document.createElement("td");
+    const name = document.createElement("td");
+    const size = document.createElement("td");
+    const deleteAction = document.createElement("td");
+    const downloadAction = document.createElement("td");
 
-            if (element.size !== element.localSize) {
-                size.classList.add('incomplete');
-                size.title += ', file incomplete'
-            }
+    exists.classList.add("exists");
+    type.classList.add("type");
+    name.classList.add("name");
+    size.classList.add("size");
+    deleteAction.classList.add("delete");
+    downloadAction.classList.add("download");
+
+    exists.textContent = listElement.type !== TYPE_PARENT ? listElement.existsLocally ? "✅" : "❌" : "";
+    type.textContent = getFileTypeIcon(listElement.type, listElement.name);
+    name.textContent = listElement.name;
+    name.title = listElement.path
+    size.textContent = formatBytes(listElement.size ? listElement.size : 0);
+    size.classList.add("size");
+    if (listElement.existsLocally) {
+        size.title = `Size on disk: ${formatBytes(listElement.localSize)}`;
+
+        if (listElement.size !== listElement.localSize) {
+            size.classList.add('incomplete');
+            size.title += ', file incomplete'
         }
-        deleteAction.textContent = "🗑️";
-        downloadAction.textContent = "💾"
-
-        tr.appendChild(exists)
-        tr.appendChild(type)
-        tr.appendChild(name)
-
-        if (element.type === TYPE_FILE) {
-            tr.appendChild(size)
-        }
-
-        if (element.type !== TYPE_PARENT) {
-            tr.appendChild(element.existsLocally ? deleteAction : downloadAction);
-        } else {
-            name.colSpan = 2;
-        }
-
-        downloadAction.onclick = (event) => {
-            event.stopPropagation();
-            if (!element.existsLocally)
-                downloadPath(element.path)
-        }
-
-        deleteAction.onclick = (event) => {
-            event.stopPropagation();
-            if (element.existsLocally) {
-                if (confirm(`Are you sure you want to delete '${element.path}'?`)) {
-                    deletePath(element.path)
-                }
-            }
-        }
-
-        tr.onclick = () => {
-            if (element.type === TYPE_FOLDER || element.type === TYPE_PARENT)
-                listPath(element.path)
-        }
-
-        body.appendChild(tr)
     }
+    deleteAction.textContent = "🗑️";
+    downloadAction.textContent = "💾"
+
+    tr.appendChild(exists)
+    tr.appendChild(type)
+    tr.appendChild(name)
+
+    if (listElement.type === TYPE_FILE) {
+        tr.appendChild(size)
+    }
+
+    if (listElement.type !== TYPE_PARENT) {
+        tr.appendChild(listElement.existsLocally ? deleteAction : downloadAction);
+    } else {
+        name.colSpan = 2;
+    }
+
+    // Clist listeners
+    downloadAction.onclick = (event) => {
+        event.stopPropagation();
+        if (!listElement.existsLocally)
+            downloadPath(listElement.path)
+    }
+
+    deleteAction.onclick = (event) => {
+        event.stopPropagation();
+        if (listElement.existsLocally) {
+            if (confirm(`Are you sure you want to delete '${listElement.path}'?`)) {
+                deletePath(listElement.path)
+            }
+        }
+    }
+
+    tr.onclick = () => {
+        if (listElement.type === TYPE_FOLDER || listElement.type === TYPE_PARENT)
+            listPath(listElement.path)
+    }
+
+    return tr;
 }
 
 // Update single explorer list element in UI
@@ -180,22 +192,26 @@ function loadListElement(data) {
 
     if (!data || !Array.isArray(currentList)) return;
 
-    for (let element of currentList) {
+    const index = currentList.findIndex((listEl) => {
+        return listEl.path === data.path;
+    })
 
-        if (element.path === data.path) {
+    if (index < 0) return;
 
-            if (typeof data.existsLocally === 'boolean') {
-                element.existsLocally = data.existsLocally;
-            }
+    const existingListElement = currentList[index];
 
-            if (typeof data.localSize === 'number') {
-                console.log(data.localSize);
-                element.localSize = data.localSize;
-            }
-        }
+    if (typeof data.localSize === 'number') {
+        existingListElement.localSize = data.localSize;
     }
 
-    loadList(currentList);
+    if (typeof data.existsLocally === 'boolean') {
+        existingListElement.existsLocally = data.existsLocally;
+    }
+
+    const domElement = getDOMElementForListElement(existingListElement);
+
+    const parent = document.querySelector("#explorer");
+    parent.childNodes[index]?.replaceWith(domElement);
 }
 
 // Loading queue UI
@@ -211,49 +227,57 @@ function loadQueue(data) {
 
     while (body.firstChild) body.removeChild(body.firstChild);
 
-    for (let element of data) {
+    data.forEach((element) => {
+        body.appendChild(getDOMElementForQueueElement(element));
+    })
+}
 
-        const tr = document.createElement("tr");
+function getDOMElementForQueueElement(queueElement) {
+    const tr = document.createElement("tr");
 
-        const state = document.createElement("td")
-        const type = document.createElement("td");
-        const name = document.createElement("td");
-        const progress = document.createElement("td");
-        const total = document.createElement("td");
-        const cancelButton = document.createElement("td");
+    const state = document.createElement("td");
+    const type = document.createElement("td");
+    const name = document.createElement("td");
+    const progress = document.createElement("td");
+    const total = document.createElement("td");
+    const cancelButton = document.createElement("td");
 
-        state.innerText = element.isDownloading ? "⬇️" : "⌛";
-        state.title = element.isDownloading ? "Item is downloading" : "Item is queued";
-        type.innerText = getFileTypeIcon(element.type, element.name)
-        name.innerText = element.name;
-        name.title = element.path;
-        progress.innerText = formatBytes(element.progress);
-        progress.title = element.progress;
-        total.innerText = formatBytes(element.size);
-        total.title = element.size;
-        cancelButton.innerText = "❌"
+    state.classList.add("state");
+    type.classList.add("type");
+    name.classList.add("name");
+    progress.classList.add("progress");
+    total.classList.add("total");
+    cancelButton.classList.add("cancel");
 
-        tr.appendChild(state);
-        tr.appendChild(type);
-        tr.appendChild(name);
-        tr.appendChild(progress);
-        tr.appendChild(total);
-        tr.appendChild(cancelButton);
-
-        tr.onclick = (event) => {
-            event.stopPropagation();
-            console.log(element)
-            if (element.isDownloading) {
-                if (confirm(`Are you sure you want to cancel downloading '${element.path}'?`)) {
-                    cancelQueueElement(element.path);
-                }
-            } else {
-                cancelQueueElement(element.path);
+    // Whole row click listener for cancel
+    tr.onclick = (event) => {
+        event.stopPropagation();
+        if (queueElement.isDownloading) {
+            if (confirm(`Are you sure you want to cancel downloading '${queueElement.path}'?`)) {
+                cancelQueueElement(queueElement.path);
             }
+        } else {
+            cancelQueueElement(queueElement.path);
         }
-
-        body.appendChild(tr);
     }
+
+    state.innerText = queueElement.isDownloading ? "⬇️" : "⌛";
+    state.title = queueElement.isDownloading ? "Item is downloading" : "Item is queued";
+    type.innerText = getFileTypeIcon(queueElement.type, queueElement.name)
+    name.innerText = queueElement.name;
+    name.title = queueElement.path;
+    progress.innerText = formatBytes(queueElement.progress);
+    total.innerText = formatBytes(queueElement.size);
+    cancelButton.innerText = "❌"
+
+    tr.appendChild(state);
+    tr.appendChild(type);
+    tr.appendChild(name);
+    tr.appendChild(progress);
+    tr.appendChild(total);
+    tr.appendChild(cancelButton);
+
+    return tr;
 }
 
 // Update single queue element in UI
@@ -262,27 +286,32 @@ function loadQueueElement(data) {
 
     if (!data || !Array.isArray(currentQueue)) return;
 
-    for (let element of currentQueue) {
-        if (element.path === data.path) {
+    const index = currentQueue.findIndex((queueEl) => {
+        return queueEl.path === data.path;
+    })
 
+    if (index < 0) return;
 
-            if (typeof data.progress === 'number') {
-                element.progress = data.progress;
-                element.progressUi = formatBytes(data.progress);
-            }
+    const existingQueueElement = currentQueue[index];
 
-            if (typeof data.isDownloading === 'boolean') {
-                element.isDownloading = data.isDownloading;
-            }
-
-            if (typeof data.size === 'number') {
-                element.size = data.size;
-                element.sizeUi = formatBytes(data.size);
-            }
-        }
+    if (typeof data.progress === 'number') {
+        existingQueueElement.progress = data.progress;
+        existingQueueElement.progressUi = formatBytes(data.progress);
     }
 
-    loadQueue(currentQueue);
+    if (typeof data.isDownloading === 'boolean') {
+        existingQueueElement.isDownloading = data.isDownloading;
+    }
+
+    if (typeof data.size === 'number') {
+        existingQueueElement.size = data.size;
+        existingQueueElement.sizeUi = formatBytes(data.size);
+    }
+
+    const domElement = getDOMElementForQueueElement(existingQueueElement);
+
+    const parent = document.querySelector("#queue");
+    parent.childNodes[index]?.replaceWith(domElement);
 }
 
 function showError(data) {
