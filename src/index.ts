@@ -119,14 +119,16 @@ function onFile(changedFilePath: string, added: boolean) {
       })()
     : 0;
   const relativePath = getRelativePath(changedFilePath);
-  sendToAll(JSON.stringify({
-    type: MessageType.LIST_ELEMENT,
-    data: {
-      path: relativePath,
-      existsLocally: added,
-      localSize: size,
-    },
-  }));
+  sendToAll(
+    JSON.stringify({
+      type: MessageType.LIST_ELEMENT,
+      data: {
+        path: relativePath,
+        existsLocally: added,
+        localSize: size,
+      },
+    })
+  );
 }
 
 // HTTP Server
@@ -249,10 +251,12 @@ function sendError(connection: connection, error: unknown) {
 }
 
 function sendErrorToAll(error: unknown) {
-  sendToAll(JSON.stringify({
-    type: MessageType.ERROR,
-    data: error,
-  }));
+  sendToAll(
+    JSON.stringify({
+      type: MessageType.ERROR,
+      data: error,
+    })
+  );
 }
 
 function deletePath(connection: connection, deletePath: string) {
@@ -318,6 +322,7 @@ async function addToQueue(connection: connection, addToQueuePath: string) {
       size: 0,
       progress: 0,
       isDownloading: false,
+      isCancelled: false,
     };
 
     downloadQueue.push(queueElement);
@@ -483,16 +488,21 @@ async function downloadQueueElement(queueElement: QueueElement) {
   } catch (e) {
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1);
     sendQueueList();
-    sendErrorToAll("FTP Download error for '" + queueElement?.path + "': " + e);
-    console.error(e);
+
+    if (!queueElement.isCancelled) {
+      sendErrorToAll("FTP Download error for '" + queueElement?.path + "': " + e);
+      console.error(e);
+    }
   }
 }
 
 function sendQueueList() {
-  sendToAll(JSON.stringify({
-    type: MessageType.QUEUE,
-    data: downloadQueue,
-  }));
+  sendToAll(
+    JSON.stringify({
+      type: MessageType.QUEUE,
+      data: downloadQueue,
+    })
+  );
 }
 
 function sendToAll(message: string) {
@@ -501,13 +511,13 @@ function sendToAll(message: string) {
 
 function cancelQueueElement(connection: connection, cancelPath: string) {
   const cleanPath = getCleanPath(cancelPath);
-  const queueElement = downloadQueue.find((el) => el.path === cleanPath);
+  const index = downloadQueue.findIndex((el) => el.path === cleanPath);
+  const queueElement = downloadQueue[index];
 
   if (queueElement) {
-    const index = downloadQueue.indexOf(queueElement);
-
     if (queueElement.isDownloading) {
-      sendError(connection, "Queue cancel error: can't cancel downloading item");
+      queueElement.isCancelled = true;
+      if (!downloadClient.closed) downloadClient.close();
     } else {
       downloadQueue.splice(index, 1);
       sendQueueList();

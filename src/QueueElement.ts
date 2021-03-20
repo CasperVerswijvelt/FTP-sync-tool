@@ -5,4 +5,5 @@ export class QueueElement {
     size: number;
     progress: number;
     isDownloading: boolean;
+    isCancelled: boolean;
 }
