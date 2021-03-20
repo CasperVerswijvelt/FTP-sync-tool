@@ -1,3 +1,9 @@
 {
-  "downloadDirectory": "/media/leeched/"
+  "downloadDirectory": "./downloadDir",
+  "host": "12.34.56.78",
+  "user": "user",
+  "password": "password",
+  "certificate": "server-cert.pem",
+  "checkServerIdentity": false,
+  "folderSizeDepth": 3
 }
