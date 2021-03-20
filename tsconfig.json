@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+      "sourceMap": true,
+      "esModuleInterop": true,
+      "allowJs": false,
+      "noImplicitAny": true,
+      "moduleResolution": "node",
+      "lib": ["es2020"],
+      "module": "commonjs",
+      "target": "es2020",
+      "baseUrl": ".",
+      "paths": {
+        "*": ["node_modules/*", "src/types/*"]
+      },
+      "typeRoots": ["node_modules/@types", "src/types"],
+      "outDir": "./build"
+    },
+    "include": ["./src/**/*"],
+    "exclude": ["node_modules"]
+  }
+  

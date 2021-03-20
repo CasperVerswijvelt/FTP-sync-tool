@@ -3,5 +3,5 @@ Movies
 Series
 config.json
 /*.pem
-dist/
+build/
 bin/

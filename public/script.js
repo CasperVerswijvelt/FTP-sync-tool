@@ -120,7 +120,7 @@ function loadList(data) {
         const downloadAction = document.createElement("td");
 
         exists.textContent = element.type !== TYPE_PARENT ? element.existsLocally ? "✅" : "❌" : "";
-        type.textContent = getFileTypeIcon(element.type);
+        type.textContent = getFileTypeIcon(element.type, element.name);
         name.textContent = element.name;
         name.title = element.path
         size.textContent = formatBytes(element.size ? element.size : 0);
@@ -204,7 +204,7 @@ function loadQueue(data) {
         const total = document.createElement("td");
         const cancelButton = document.createElement("td");
 
-        type.innerText = getFileTypeIcon(element.type)
+        type.innerText = getFileTypeIcon(element.type, element.name)
         name.innerText = element.name;
         name.title = element.path;
         progress.innerText = formatBytes(element.progress);
@@ -244,7 +244,7 @@ function loadQueueElement(data) {
     for (let element of currentQueue) {
         if (element.path === data.path) {
             element.progress = data.progress;
-            element.progressUi = formatBytes(data.progress);;
+            element.progressUi = formatBytes(data.progress);
             element.isDownloading = data.isDownloading;
             element.size = data.size;
             element.sizeUi = formatBytes(data.size);
@@ -272,11 +272,11 @@ function showError(data) {
 
 }
 
-function getFileTypeIcon(fileType) {
+function getFileTypeIcon(fileType, filePath) {
 
     switch (fileType) {
         case TYPE_FILE:
-            return "📄";
+            return getFileTypeExtensionIcon(filePath);
         case TYPE_FOLDER:
             return "📁";
         case TYPE_PARENT:
@@ -284,6 +284,108 @@ function getFileTypeIcon(fileType) {
         default:
             return "❓";
     }
+}
+
+function getFileTypeExtensionIcon(filePath) {
+
+    if (typeof filePath === 'string' && filePath) {
+
+        const extension = filePath.toLowerCase().split('.').pop();
+
+        switch (extension) {
+            case "3g2":
+            case "3gp":
+            case "aaf":
+            case "asf":
+            case "avchd":
+            case "avi":
+            case "drc":
+            case "flv":
+            case "m2v":
+            case "m4p":
+            case "m4v":
+            case "mkv":
+            case "mng":
+            case "mov":
+            case "mp2":
+            case "mp4":
+            case "mpe":
+            case "mpeg":
+            case "mpg":
+            case "mpv":
+            case "mxf":
+            case "nsv":
+            case "ogg":
+            case "ogv":
+            case "qt":
+            case "rm":
+            case "rmvb":
+            case "roq":
+            case "svi":
+            case "vob":
+            case "webm":
+            case "wmv":
+            case "yuv":
+                return "🎞️";
+            case "aa":
+            case "aac":
+            case "aax":
+            case "act":
+            case "aiff":
+            case "alac":
+            case "amr":
+            case "ape":
+            case "au":
+            case "awb":
+            case "dss":
+            case "dvf":
+            case "flac":
+            case "gsm":
+            case "iklax":
+            case "ivs":
+            case "m4a":
+            case "m4b":
+            case "m4p":
+            case "mmf":
+            case "mp3":
+            case "mpc":
+            case "msv":
+            case "nmf":
+            case "ogg":
+            case "mogg":
+            case "oga":
+            case "opus":
+            case "org":
+            case "ra":
+            case "rm":
+            case "raw":
+            case "rf64":
+            case "sln":
+            case "tts":
+            case "voc":
+            case "vox":
+            case "wav":
+            case "wma":
+            case "wv":
+            case "webm":
+            case "8svx":
+            case "cda":
+                return "🎧";
+            case "rar":
+            case "tar":
+            case "gz":
+            case "7z":
+            case "zip":
+            case "lzma":
+            case "rm":
+            case "raw":
+            case "rf64":
+                return "🗄️"
+            
+        }
+    }
+
+    return "📄";
 }
 
 function formatBytes(bytes) {
