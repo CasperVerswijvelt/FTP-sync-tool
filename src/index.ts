@@ -242,19 +242,34 @@ async function listPath(connection: connection, directory: string) {
   connection.send(message);
 }
 
-function sendError(connection: connection, error: unknown) {
-  const message = JSON.stringify({
+function sendError(connection: connection, error: string) {
+  connection?.send(JSON.stringify({
     type: MessageType.ERROR,
     data: error,
-  });
-  connection?.send(message);
+  }));
 }
 
-function sendErrorToAll(error: unknown) {
+function sendSuccess(connection: connection, message: string) {
+  connection?.send(JSON.stringify({
+    type: MessageType.SUCCESS,
+    data: message,
+  }));
+}
+
+function sendErrorToAll(error: string) {
   sendToAll(
     JSON.stringify({
       type: MessageType.ERROR,
       data: error,
+    })
+  );
+}
+
+function sendSuccesToAll(message: string) {
+  sendToAll(
+    JSON.stringify({
+      type: MessageType.SUCCESS,
+      data: message,
     })
   );
 }
@@ -276,6 +291,7 @@ function deletePath(connection: connection, deletePath: string) {
 
   try {
     rmSync(actualDeletePath);
+    sendSuccess(connection, `Sucessfully deleted '${cleanPath}'`)
   } catch (e) {
     console.error(e);
     sendError(connection, `Delete error for ${cleanPath} (${e})`);
@@ -396,7 +412,8 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
   }
 
   async function getFolderSize(folderPath: string, level: number, queueElement: QueueElement) {
-    if (level > folderSizeDepth) return 0;
+
+    if (queueElement.isCancelled || level > folderSizeDepth) return 0;
 
     const list = await browseClient.list(folderPath);
 
@@ -480,6 +497,7 @@ async function downloadQueueElement(queueElement: QueueElement) {
     closeDownloadClient();
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1);
     sendQueueList();
+    sendSuccesToAll(`Succesfully downloaded ${queueElement.path}`)
   } catch (e) {
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1);
     sendQueueList();

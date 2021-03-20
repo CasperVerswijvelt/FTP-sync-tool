@@ -31,7 +31,10 @@ function connectWebSocket() {
                     loadQueueElement(message.data)
                     break;
                 case "error":
-                    showError(message.data)
+                    showMessage(message.data, true)
+                    break;
+                case "success":
+                    showMessage(message.data, false)
                     break;
             }
         } catch (e) {
@@ -314,21 +317,28 @@ function loadQueueElement(data) {
     parent.childNodes[index]?.replaceWith(domElement);
 }
 
-function showError(data) {
+function showMessage(data, isError) {
 
     if (!data) return;
 
-    const oldError = document.getElementById("error");
-
-    if (oldError) document.body.removeChild(oldError)
+    const messagesContainer = document.getElementById("messages")
 
     const errorEl = document.createElement("div");
-    errorEl.id = "error";
+    errorEl.classList.add("message");
+    errorEl.classList.add(isError ? "error" : "success");
 
     const date = new Date();
-    errorEl.textContent = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()} - ${data}`;
+    errorEl.textContent = `${date.toLocaleDateString("en-GB", { // you can use undefined as first argument
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })} - ${data}`;
 
-    document.body.appendChild(errorEl)
+    messagesContainer.appendChild(errorEl);
+
+    while(messagesContainer.childElementCount > 50) {
+        messagesContainer.removeChild(messagesContainer.firstChild);
+    }
 
 }
 
