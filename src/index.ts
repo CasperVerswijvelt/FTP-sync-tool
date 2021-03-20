@@ -11,6 +11,8 @@ import path from "path";
 
 import { exit } from "process";
 import { QueueElement } from "./QueueElement";
+import { ActionType } from "./ActionType";
+import { MessageType } from "./MessageType";
 
 // Config variables
 
@@ -117,15 +119,14 @@ function onFile(changedFilePath: string, added: boolean) {
       })()
     : 0;
   const relativePath = getRelativePath(changedFilePath);
-  const message = JSON.stringify({
-    type: "listElement",
+  sendToAll(JSON.stringify({
+    type: MessageType.LIST_ELEMENT,
     data: {
       path: relativePath,
       existsLocally: added,
       localSize: size,
     },
-  });
-  connections.forEach((connection) => connection.send(message));
+  }));
 }
 
 // HTTP Server
@@ -155,19 +156,19 @@ wsServer.on("connect", (connection) => {
       const msg = JSON.parse(message.utf8Data);
 
       switch (msg.action) {
-        case "list":
+        case ActionType.LIST:
           listPath(connection, msg.path);
           break;
-        case "delete":
+        case ActionType.DELETE:
           deletePath(connection, msg.path);
           break;
-        case "download":
+        case ActionType.DOWNLOAD:
           addToQueue(connection, msg.path);
           break;
-        case "listQueue":
+        case ActionType.LIST_QUEUE:
           sendQueueList();
           break;
-        case "cancelQueueElement":
+        case ActionType.QUEUE_CANCEL:
           cancelQueueElement(connection, msg.path);
           break;
       }
@@ -222,39 +223,36 @@ async function listPath(connection: connection, directory: string) {
       };
     });
 
-  connection.send(
-    JSON.stringify({
-      type: "list",
-      data: (!checkLocalPathSafe(path.dirname(path.resolve(path.join(downloadDirectory, directory))))
-        ? []
-        : [
-            {
-              name: "Parent directory",
-              path: path.dirname(directory) ? path.dirname(directory) : "",
-              existsLocally: true,
-              type: -1,
-            },
-          ]
-      ).concat(mappedList),
-    })
-  );
+  const message = JSON.stringify({
+    type: MessageType.LIST,
+    data: (!checkLocalPathSafe(path.dirname(path.resolve(path.join(downloadDirectory, directory))))
+      ? []
+      : [
+          {
+            name: "Parent directory",
+            path: path.dirname(directory) ? path.dirname(directory) : "",
+            existsLocally: true,
+            type: -1,
+          },
+        ]
+    ).concat(mappedList),
+  });
+  connection.send(message);
 }
 
 function sendError(connection: connection, error: unknown) {
-  connection?.send(
-    JSON.stringify({
-      type: "error",
-      data: error,
-    })
-  );
+  const message = JSON.stringify({
+    type: MessageType.ERROR,
+    data: error,
+  });
+  connection?.send(message);
 }
 
 function sendErrorToAll(error: unknown) {
-  const message = JSON.stringify({
-    type: "error",
+  sendToAll(JSON.stringify({
+    type: MessageType.ERROR,
     data: error,
-  });
-  connections.forEach((connection) => connection.send(message));
+  }));
 }
 
 function deletePath(connection: connection, deletePath: string) {
@@ -345,16 +343,40 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
       size = await browseClient.size(elPath);
       browseClient.close();
       queueElement.size = size;
-      sendQueueElement(queueElement);
+      sendToAll(
+        JSON.stringify({
+          type: MessageType.QUEUE_ELEMENT,
+          data: {
+            path: queueElement.path,
+            size: queueElement.size,
+          },
+        })
+      );
     } else if (file.type === 2) {
       const updateSizeIntervalId = setInterval(() => {
-        sendQueueElement(queueElement);
+        sendToAll(
+          JSON.stringify({
+            type: MessageType.QUEUE_ELEMENT,
+            data: {
+              path: queueElement.path,
+              size: queueElement.size,
+            },
+          })
+        );
       }, 1000);
 
       getFolderSize(elPath, 0, queueElement)
         .then(() => {
           clearInterval(updateSizeIntervalId);
-          sendQueueElement(queueElement);
+          sendToAll(
+            JSON.stringify({
+              type: MessageType.QUEUE_ELEMENT,
+              data: {
+                path: queueElement.path,
+                size: queueElement.size,
+              },
+            })
+          );
           browseClient.close();
         })
         .catch((e) => {
@@ -401,7 +423,15 @@ function startQueue() {
 
     if (queueElement) {
       queueElement.isDownloading = true;
-      sendQueueElement(queueElement);
+      sendToAll(
+        JSON.stringify({
+          type: MessageType.QUEUE_ELEMENT,
+          data: {
+            path: queueElement.path,
+            isDownloading: queueElement.isDownloading,
+          },
+        })
+      );
       return downloadQueueElement(queueElement).then(getDownloadNextElementPromise);
     }
 
@@ -422,7 +452,15 @@ async function downloadQueueElement(queueElement: QueueElement) {
     downloadClient.trackProgress((info) => {
       if (info.type === "download") {
         queueElement.progress = info.bytesOverall;
-        sendQueueElement(queueElement);
+        sendToAll(
+          JSON.stringify({
+            type: MessageType.QUEUE_ELEMENT,
+            data: {
+              path: queueElement.path,
+              progress: queueElement.progress,
+            },
+          })
+        );
       }
     });
 
@@ -451,18 +489,13 @@ async function downloadQueueElement(queueElement: QueueElement) {
 }
 
 function sendQueueList() {
-  const message = JSON.stringify({
-    type: "queue",
+  sendToAll(JSON.stringify({
+    type: MessageType.QUEUE,
     data: downloadQueue,
-  });
-  connections.forEach((connection) => connection.send(message));
+  }));
 }
 
-function sendQueueElement(queuElement: QueueElement) {
-  const message = JSON.stringify({
-    type: "queueElement",
-    data: queuElement,
-  });
+function sendToAll(message: string) {
   connections.forEach((connection) => connection.send(message));
 }
 
