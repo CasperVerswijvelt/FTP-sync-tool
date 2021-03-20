@@ -65,7 +65,8 @@ function connectWebSocket() {
 }
 
 function loadTheme() {
-
+    const themePref = localStorage.getItem('theme');
+    if (themePref) toggleDarkMode(themePref === 'dark');
 }
 
 function listPath(path) {
@@ -297,16 +298,16 @@ function getDOMElementForQueueElement(queueElement) {
 
 function toggleDarkMode(force) {
 
-    document.documentElement.setAttribute(
-        'data-theme',
-        typeof force === 'boolean'
-            ? force
-                ? "dark"
-                : "light"
-            : document.documentElement.getAttribute('data-theme') !== 'light'
-                ? 'light'
-                : 'dark'
-    );
+    const theme = typeof force === 'boolean'
+        ? force
+            ? "dark"
+            : "light"
+        : document.documentElement.getAttribute('data-theme') !== 'light'
+            ? 'light'
+            : 'dark'
+
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
 }
 
 // Update single queue element in UI
