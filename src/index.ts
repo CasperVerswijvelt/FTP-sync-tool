@@ -497,7 +497,7 @@ async function downloadQueueElement(queueElement: QueueElement) {
     closeDownloadClient();
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1);
     sendQueueList();
-    sendSuccesToAll(`Succesfully downloaded ${queueElement.path}`)
+    sendSuccesToAll(`Succesfully downloaded ${queueElement.name}`)
   } catch (e) {
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1);
     sendQueueList();

@@ -109,6 +109,8 @@ function loadList(data) {
 
     if (!body) return;
 
+    body.classList.remove("loading");
+
     while (body.firstChild) body.removeChild(body.firstChild);
 
     data.forEach((element) => {
@@ -228,6 +230,8 @@ function loadQueue(data) {
 
     if (!body) return;
 
+    body.classList.remove("loading");
+
     while (body.firstChild) body.removeChild(body.firstChild);
 
     data.forEach((element) => {
@@ -327,19 +331,13 @@ function showMessage(data, isError) {
     errorEl.classList.add("message");
     errorEl.classList.add(isError ? "error" : "success");
 
-    const date = new Date();
-    errorEl.textContent = `${date.toLocaleDateString("en-GB", { // you can use undefined as first argument
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      })} - ${data}`;
+    errorEl.textContent = data;
 
     messagesContainer.appendChild(errorEl);
 
     while(messagesContainer.childElementCount > 50) {
         messagesContainer.removeChild(messagesContainer.firstChild);
     }
-
 }
 
 function getFileTypeIcon(fileType, filePath) {
