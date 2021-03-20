@@ -2,6 +2,7 @@ config.json
 /*.pem
 build/
 bin/
+downloadDir/
 
 # Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,node
 # Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,node
