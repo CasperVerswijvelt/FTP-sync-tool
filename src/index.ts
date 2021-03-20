@@ -67,7 +67,7 @@ try {
   exit(1)
 }
 
-downloadDirectory = getCleanPath(downloadDirectory)
+downloadDirectory = path.resolve(downloadDirectory);
 
 // Ftp client
 
@@ -118,7 +118,6 @@ const port = process.env.PORT || 3000;
 const app = express();
 const httpServer = http.createServer(app);
 app.use(express.static(path.join(path.resolve(path.dirname(__dirname)), 'public')));
-console.log(path.join(path.resolve(path.dirname(__dirname)), 'public'));
 httpServer.listen(port, () => {
   return console.log(`server is listening on ${port}`);
 });
@@ -204,7 +203,7 @@ async function listPath(connection: connection, directory : string) {
 
   connection.send(JSON.stringify({
     type: "list",
-    data: (directory === downloadDirectory ? [] : [{
+    data: (!checkLocalPathSafe(path.dirname(path.resolve(path.join(downloadDirectory, directory)))) ? [] : [{
       name: "Parent directory",
       path: path.dirname(directory) ? path.dirname(directory) : '',
       existsLocally: true,
@@ -498,18 +497,25 @@ function isNEString(value: unknown) {
 
 function checkPathSafe(checkPath: string) {
 
-  const absDownloadPath = path.resolve(downloadDirectory);
+  const absCheckPath = path.resolve(path.join(downloadDirectory, checkPath));
+
+  return checkLocalPathSafe(absCheckPath);
+}
+
+function checkLocalPathSafe(checkPath: string) {
+
   const absCheckPath = path.resolve(checkPath);
 
-  if (absDownloadPath === absCheckPath) return true;
+  if (downloadDirectory === absCheckPath) return true;
 
-  const relative = path.relative(absDownloadPath, absCheckPath);
+  const relative = path.relative(downloadDirectory, absCheckPath);
+
   return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function getCleanPath(uncleanPath: string) {
 
-  const resolved = path.resolve(uncleanPath);
+  const resolved = path.resolve(path.join(downloadDirectory, uncleanPath));
   const resolvedDownloadPath = path.resolve(downloadDirectory);
 
   return path.relative(resolvedDownloadPath, resolved);
