@@ -4,3 +4,4 @@ Series
 config.json
 /*.pem
 dist/
+bin/
