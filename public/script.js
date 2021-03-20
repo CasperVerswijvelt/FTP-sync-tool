@@ -70,6 +70,7 @@ function loadTheme() {
 }
 
 function listPath(path) {
+    showWSNotConnectedErrror();
     if (!ws) return;
     ws.send(JSON.stringify({
         action: "list",
@@ -78,12 +79,15 @@ function listPath(path) {
 }
 
 function listQueue() {
+    showWSNotConnectedErrror();
+    if (!ws) return;
     ws.send(JSON.stringify({
         action: "listQueue"
     }));
 }
 
 function downloadPath(path) {
+    showWSNotConnectedErrror();
     if (!ws) return;
     ws.send(JSON.stringify({
         action: "download",
@@ -92,6 +96,7 @@ function downloadPath(path) {
 }
 
 function deletePath(path) {
+    showWSNotConnectedErrror();
     if (!ws) return;
     ws.send(JSON.stringify({
         action: "delete",
@@ -100,6 +105,7 @@ function deletePath(path) {
 }
 
 function cancelQueueElement(path) {
+    showWSNotConnectedErrror();
     if (!ws) return;
     ws.send(JSON.stringify({
         action: "cancelQueueElement",
@@ -360,6 +366,12 @@ function showMessage(data, isError) {
 
     while (messagesContainer.childElementCount > 50) {
         messagesContainer.removeChild(messagesContainer.firstChild);
+    }
+}
+
+function showWSNotConnectedErrror() {
+    if (!ws) {
+        showMessage("Could not complete action, not connected to backend" , true);
     }
 }
 
