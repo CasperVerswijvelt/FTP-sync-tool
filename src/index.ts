@@ -17,22 +17,12 @@ import { MessageType } from "./MessageType";
 // Config variables
 
 let downloadDirectory = "./";
-let host = "";
-let user = "";
-let password = "";
 let folderSizeDepth = 5;
-let checkServerIdentity = true;
 
 // Ftp client and access options
 
 const downloadClient = new Client();
-const accessOptions: AccessOptions = {
-  host: host,
-  user: user,
-  password: password,
-  secure: true,
-  secureOptions: {},
-};
+let accessOptions: AccessOptions;;
 
 // Parse config
 
@@ -45,21 +35,28 @@ try {
   // Host: required
 
   if (!isNEString(config.host)) throw "Host cannot be empty";
-  host = config.host;
+  const host = config.host;
 
-  // Username: required
-
-  if (!isNEString(config.user)) throw "User cannot be empty";
-  user = config.user;
-
-  // Password: required
-
-  if (!isNEString(config.password)) throw "Password cannot be empty";
-  password = config.password;
+  // Create access options
+ 
+  accessOptions = {
+    host: host,
+    user: isNEString(config.user) ? config.user : undefined,
+    password:  isNEString(config.password) ? config.password : undefined,
+    secure: typeof config.secure === "boolean" || config.secure === 'implicit' ? config.secure : undefined,
+    secureOptions: {},
+  };
 
   // Certificate: optional [none]
   if (isNEString(config.certificate)) {
     accessOptions.secureOptions.ca = fs.readFileSync(config.certificate, { encoding: "utf-8" });
+  }
+
+  // Check server identity: optional [true]
+  if (config.checkServerIdentity === false) {
+    accessOptions.secureOptions.checkServerIdentity = (): Error => {
+      return null;
+    };
   }
 
   // Local downloaddiretory: optional ['./']
@@ -70,13 +67,6 @@ try {
   // Folder size depth: optional [5]
   if (typeof config.folderSizeDepth === "number") {
     folderSizeDepth = config.folderSizeDepth;
-  }
-
-  // Check server identity: optional [true]
-  if (config.checkServerIdentity === "false") {
-    accessOptions.secureOptions.checkServerIdentity = (): Error => {
-      return null;
-    };
   }
 } catch (e) {
   console.log("Config load error:", e);
