@@ -1,28 +1,35 @@
+// Imports
+
+// FTP
 import { Client, FileInfo, AccessOptions, FileType } from "basic-ftp";
+
+// Filesystem
 import fs from "fs";
 import mkdirp from "mkdirp";
 import chokidar from "chokidar";
-
-import express from "express";
-import { server, connection } from "websocket";
-
-import http from "http";
 import path from "path";
 
-import { exit } from "process";
+// Server
+import express from "express";
+import { server, connection } from "websocket";
+import http from "http";
+
+// Types and constants
 import { QueueElement } from "./QueueElement";
 import { ActionType } from "./ActionType";
 import { MessageType } from "./MessageType";
+
+import { exit } from "process";
 
 // Config variables
 
 let downloadDirectory = "./";
 let folderSizeDepth = 5;
 
-// Ftp client and access options
+// FTP client and access options
 
 const downloadClient = new Client();
-let accessOptions: AccessOptions;;
+let accessOptions: AccessOptions;
 
 // Parse config
 
@@ -69,17 +76,11 @@ try {
     folderSizeDepth = config.folderSizeDepth;
   }
 } catch (e) {
-  console.log("Config load error:", e);
+  console.error("Config load error:", e);
   exit(1);
 }
 
 downloadDirectory = path.resolve(downloadDirectory);
-
-// Queue
-
-const downloadQueue: QueueElement[] = [];
-
-let isDownloadingQueue = false;
 
 // File watching
 
@@ -134,6 +135,11 @@ httpServer.listen(port, () => {
   return console.log(`server is listening on ${port}`);
 });
 
+// Queue
+
+const downloadQueue: QueueElement[] = [];
+let isDownloadingQueue = false;
+
 // WebSocket
 
 const connections: connection[] = [];
@@ -152,19 +158,19 @@ wsServer.on("connect", (connection) => {
 
       switch (msg.action) {
         case ActionType.LIST:
-          listPath(connection, msg.path);
+          wsList(connection, msg.path);
           break;
         case ActionType.DELETE:
-          deletePath(connection, msg.path);
+          wsDelete(connection, msg.path);
           break;
         case ActionType.DOWNLOAD:
-          addToQueue(connection, msg.path);
+          onAddToQueue(connection, msg.path);
           break;
         case ActionType.LIST_QUEUE:
           sendQueueList();
           break;
         case ActionType.QUEUE_CANCEL:
-          cancelQueueElement(connection, msg.path);
+          onRemoveFromQueue(connection, msg.path);
           break;
       }
     } catch (e) {
@@ -180,7 +186,57 @@ wsServer.on("connect", (connection) => {
   });
 });
 
-async function listPath(connection: connection, directory: string) {
+// WebSocket helper functions
+
+function sendError(connection: connection, error: string) {
+  connection?.send(JSON.stringify({
+    type: MessageType.ERROR,
+    data: error,
+  }));
+}
+
+function sendSuccess(connection: connection, message: string) {
+  connection?.send(JSON.stringify({
+    type: MessageType.SUCCESS,
+    data: message,
+  }));
+}
+
+function sendErrorToAll(error: string) {
+  sendToAll(
+    JSON.stringify({
+      type: MessageType.ERROR,
+      data: error,
+    })
+  );
+}
+
+function sendSuccesToAll(message: string) {
+  sendToAll(
+    JSON.stringify({
+      type: MessageType.SUCCESS,
+      data: message,
+    })
+  );
+}
+
+
+function sendQueueList() {
+  sendToAll(
+    JSON.stringify({
+      type: MessageType.QUEUE,
+      data: downloadQueue,
+    })
+  );
+}
+
+function sendToAll(message: string) {
+  connections.forEach((connection) => connection.send(message));
+}
+
+// WebSocket message handlers
+
+async function wsList(connection: connection, directory: string) {
   if (!checkPathSafe(directory)) {
     sendError(connection, "Invalid list path");
     return;
@@ -235,39 +291,7 @@ async function listPath(connection: connection, directory: string) {
   connection.send(message);
 }
 
-function sendError(connection: connection, error: string) {
-  connection?.send(JSON.stringify({
-    type: MessageType.ERROR,
-    data: error,
-  }));
-}
-
-function sendSuccess(connection: connection, message: string) {
-  connection?.send(JSON.stringify({
-    type: MessageType.SUCCESS,
-    data: message,
-  }));
-}
-
-function sendErrorToAll(error: string) {
-  sendToAll(
-    JSON.stringify({
-      type: MessageType.ERROR,
-      data: error,
-    })
-  );
-}
-
-function sendSuccesToAll(message: string) {
-  sendToAll(
-    JSON.stringify({
-      type: MessageType.SUCCESS,
-      data: message,
-    })
-  );
-}
-
-function deletePath(connection: connection, deletePath: string) {
+function wsDelete(connection: connection, deletePath: string) {
   if (!isNEString(deletePath)) {
     sendError(connection, "Delete error: empty delete path");
     return;
@@ -291,9 +315,7 @@ function deletePath(connection: connection, deletePath: string) {
   }
 }
 
-// Download queue
-
-async function addToQueue(connection: connection, addToQueuePath: string) {
+async function onAddToQueue(connection: connection, addToQueuePath: string) {
   if (!checkPathSafe(addToQueuePath)) {
     sendError(connection, "Queue add error: invalid download path");
     return;
@@ -341,86 +363,25 @@ async function addToQueue(connection: connection, addToQueuePath: string) {
   }
 }
 
-async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
-  const browseClient = new Client();
-  await browseClient.access(accessOptions);
+function onRemoveFromQueue(connection: connection, cancelPath: string) {
+  const cleanPath = getCleanPath(cancelPath);
+  const index = downloadQueue.findIndex((el) => el.path === cleanPath);
+  const queueElement = downloadQueue[index];
 
-  let size: number;
-  const elPath = queueElement.path.replace(/\\/g, "/");
-
-  try {
-    if (file.type === FileType.File) {
-      size = await browseClient.size(elPath);
-      browseClient.close();
-      queueElement.size = size;
-      sendToAll(
-        JSON.stringify({
-          type: MessageType.QUEUE_ELEMENT,
-          data: {
-            path: queueElement.path,
-            size: queueElement.size,
-          },
-        })
-      );
-    } else if (file.type === FileType.Directory) {
-      const updateSizeIntervalId = setInterval(() => {
-        sendToAll(
-          JSON.stringify({
-            type: MessageType.QUEUE_ELEMENT,
-            data: {
-              path: queueElement.path,
-              size: queueElement.size,
-            },
-          })
-        );
-      }, 1000);
-
-      getFolderSize(elPath, 0, queueElement)
-        .then(() => {
-          clearInterval(updateSizeIntervalId);
-          sendToAll(
-            JSON.stringify({
-              type: MessageType.QUEUE_ELEMENT,
-              data: {
-                path: queueElement.path,
-                size: queueElement.size,
-              },
-            })
-          );
-          browseClient.close();
-        })
-        .catch((e) => {
-          clearInterval(updateSizeIntervalId);
-          sendErrorToAll(`Queue error: Could not determine queue element size of folder (${e})`);
-          console.error(e);
-        });
+  if (queueElement) {
+    if (queueElement.isDownloading) {
+      queueElement.isCancelled = true;
+      if (!downloadClient.closed) downloadClient.close();
     } else {
-      sendErrorToAll("Queue error: Could not determine queue element size for non folder and non file type");
+      downloadQueue.splice(index, 1);
+      sendQueueList();
     }
-  } catch (e) {
-    browseClient.close();
-    console.error(e);
-    sendErrorToAll(`Queue error: Could not determine queue element size (${e}) `);
-    return;
-  }
-
-  async function getFolderSize(folderPath: string, level: number, queueElement: QueueElement) {
-
-    if (queueElement.isCancelled || level > folderSizeDepth) return 0;
-
-    const list = await browseClient.list(folderPath);
-
-    for (const element of list) {
-      const elPath = path.join(folderPath, element.name).replace(/\\/g, "/");
-
-      if (element.type === FileType.File) {
-        queueElement.size += element.size;
-      } else if (element.type === FileType.Directory) {
-        await getFolderSize(elPath, level + 1, queueElement);
-      }
-    }
+  } else {
+    sendError(connection, "Queue cancel error: element not in queue");
   }
 }
+
+// Queue handling
 
 function startQueue() {
   if (isDownloadingQueue) return;
@@ -508,38 +469,7 @@ async function downloadQueueElement(queueElement: QueueElement) {
   }
 }
 
-function sendQueueList() {
-  sendToAll(
-    JSON.stringify({
-      type: MessageType.QUEUE,
-      data: downloadQueue,
-    })
-  );
-}
-
-function sendToAll(message: string) {
-  connections.forEach((connection) => connection.send(message));
-}
-
-function cancelQueueElement(connection: connection, cancelPath: string) {
-  const cleanPath = getCleanPath(cancelPath);
-  const index = downloadQueue.findIndex((el) => el.path === cleanPath);
-  const queueElement = downloadQueue[index];
-
-  if (queueElement) {
-    if (queueElement.isDownloading) {
-      queueElement.isCancelled = true;
-      if (!downloadClient.closed) downloadClient.close();
-    } else {
-      downloadQueue.splice(index, 1);
-      sendQueueList();
-    }
-  } else {
-    sendError(connection, "Queue cancel error: element not in queue");
-  }
-}
-
-// FTP client actions
+// FTP helper functions
 
 function connectDownloadClient() {
   return downloadClient.access(accessOptions);
@@ -557,6 +487,87 @@ async function listFtp(listPath: string): Promise<FileInfo[]> {
   } catch (e) {
     client.close();
     throw e;
+  }
+}
+
+async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
+  const browseClient = new Client();
+  await browseClient.access(accessOptions);
+
+  let size: number;
+  const elPath = queueElement.path.replace(/\\/g, "/");
+
+  try {
+    if (file.type === FileType.File) {
+      size = await browseClient.size(elPath);
+      browseClient.close();
+      queueElement.size = size;
+      sendToAll(
+        JSON.stringify({
+          type: MessageType.QUEUE_ELEMENT,
+          data: {
+            path: queueElement.path,
+            size: queueElement.size,
+          },
+        })
+      );
+    } else if (file.type === FileType.Directory) {
+      const updateSizeIntervalId = setInterval(() => {
+        sendToAll(
+          JSON.stringify({
+            type: MessageType.QUEUE_ELEMENT,
+            data: {
+              path: queueElement.path,
+              size: queueElement.size,
+            },
+          })
+        );
+      }, 1000);
+
+      getFolderSize(elPath, 0, queueElement)
+        .then(() => {
+          clearInterval(updateSizeIntervalId);
+          sendToAll(
+            JSON.stringify({
+              type: MessageType.QUEUE_ELEMENT,
+              data: {
+                path: queueElement.path,
+                size: queueElement.size,
+              },
+            })
+          );
+          browseClient.close();
+        })
+        .catch((e) => {
+          clearInterval(updateSizeIntervalId);
+          sendErrorToAll(`Queue error: Could not determine queue element size of folder (${e})`);
+          console.error(e);
+        });
+    } else {
+      sendErrorToAll("Queue error: Could not determine queue element size for non folder and non file type");
+    }
+  } catch (e) {
+    browseClient.close();
+    console.error(e);
+    sendErrorToAll(`Queue error: Could not determine queue element size (${e}) `);
+    return;
+  }
+
+  async function getFolderSize(folderPath: string, level: number, queueElement: QueueElement) {
+
+    if (queueElement.isCancelled || level > folderSizeDepth) return 0;
+
+    const list = await browseClient.list(folderPath);
+
+    for (const element of list) {
+      const elPath = path.join(folderPath, element.name).replace(/\\/g, "/");
+
+      if (element.type === FileType.File) {
+        queueElement.size += element.size;
+      } else if (element.type === FileType.Directory) {
+        await getFolderSize(elPath, level + 1, queueElement);
+      }
+    }
   }
 }
 

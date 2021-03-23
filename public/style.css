@@ -92,6 +92,7 @@ section {
     cursor: pointer;
     opacity: 0.7;
     transition: opacity .2s;
+    user-select: none;
 }
 
 .dark-toggle svg {
