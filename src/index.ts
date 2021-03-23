@@ -20,6 +20,7 @@ import { ActionType } from "./ActionType";
 import { MessageType } from "./MessageType";
 
 import { exit } from "process";
+import { Config } from "./Config";
 
 // Config variables
 
@@ -33,34 +34,37 @@ let accessOptions: AccessOptions;
 
 // Parse config
 
-let config;
+let config : Config;
 
 try {
 
   config = JSON.parse(fs.readFileSync("config.json", { encoding: "utf-8" }));
 
+  const ftp = config.ftp;
+
+  if (!ftp) throw "ftp is a required config field"
+
   // Host: required
 
-  if (!isNEString(config.host)) throw "Host cannot be empty";
-  const host = config.host;
+  if (!isNEString(ftp.host)) throw "Host cannot be empty";
 
   // Create access options
  
   accessOptions = {
-    host: host,
-    user: isNEString(config.user) ? config.user : undefined,
-    password:  isNEString(config.password) ? config.password : undefined,
-    secure: typeof config.secure === "boolean" || config.secure === 'implicit' ? config.secure : undefined,
+    host: ftp.host,
+    user: isNEString(ftp.user) ? ftp.user : undefined,
+    password:  isNEString(ftp.password) ? ftp.password : undefined,
+    secure: typeof ftp.secure === "boolean" || ftp.secure === 'implicit' ? ftp.secure : undefined,
     secureOptions: {},
   };
 
   // Certificate: optional [none]
-  if (isNEString(config.certificate)) {
-    accessOptions.secureOptions.ca = fs.readFileSync(config.certificate, { encoding: "utf-8" });
+  if (isNEString(ftp.certificate)) {
+    accessOptions.secureOptions.ca = fs.readFileSync(ftp.certificate, { encoding: "utf-8" });
   }
 
   // Check server identity: optional [true]
-  if (config.checkServerIdentity === false) {
+  if (ftp.checkServerIdentity === false) {
     accessOptions.secureOptions.checkServerIdentity = (): Error => {
       return null;
     };
@@ -146,11 +150,17 @@ const connections: ws[] = [];
 
 const wss = new ws.Server({noServer: true})
 
-httpServer.on('upgrade', (req, socket, head) => {
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit('connection', ws, req);
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    if (!isNEString(config.security?.websocketOrigin) || req.headers.origin?.startsWith(config.security?.websocketOrigin)) {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      })
+    } else {
+      console.log(`Denying connection from ${req.connection.remoteAddress} at origin ${req.headers.origin}`)
+      socket.destroy();
+    }
   })
-})
 
 wss.on('connection', (ws: ws) => {
   connections.push(ws);
