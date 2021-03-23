@@ -15,12 +15,15 @@ import ws from "ws";
 import http from "http";
 
 // Types and constants
-import { QueueElement } from "./QueueElement";
-import { ActionType } from "./ActionType";
-import { MessageType } from "./MessageType";
+import { QueueElement } from "./models/QueueElement";
+import { ActionType } from "./models/ActionType";
+import { MessageType } from "./models/MessageType";
 
 import { exit } from "process";
-import { Config } from "./Config";
+import { Config } from "./models/Config";
+import { ActionMessage } from "./models/ActionMessage";
+import { Response } from "./models/Response";
+import { ErrorType } from "./models/Error";
 
 // Config variables
 
@@ -34,27 +37,26 @@ let accessOptions: AccessOptions;
 
 // Parse config
 
-let config : Config;
+let config: Config;
 
 try {
-
   config = JSON.parse(fs.readFileSync("config.json", { encoding: "utf-8" }));
 
   const ftp = config.ftp;
 
-  if (!ftp) throw "ftp is a required config field"
+  if (!ftp) throw "ftp is a required config field";
 
   // Host: required
 
   if (!isNEString(ftp.host)) throw "Host cannot be empty";
 
   // Create access options
- 
+
   accessOptions = {
     host: ftp.host,
     user: isNEString(ftp.user) ? ftp.user : undefined,
-    password:  isNEString(ftp.password) ? ftp.password : undefined,
-    secure: typeof ftp.secure === "boolean" || ftp.secure === 'implicit' ? ftp.secure : undefined,
+    password: isNEString(ftp.password) ? ftp.password : undefined,
+    secure: typeof ftp.secure === "boolean" || ftp.secure === "implicit" ? ftp.secure : undefined,
     secureOptions: {},
   };
 
@@ -148,91 +150,64 @@ let isDownloadingQueue = false;
 
 const connections: ws[] = [];
 
-const wss = new ws.Server({noServer: true})
+const wss = new ws.Server({ noServer: true });
 
+httpServer.on("upgrade", (req, socket, head) => {
+  if (!isNEString(config.security?.websocketOrigin) || req.headers.origin?.startsWith(config.security?.websocketOrigin)) {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  } else {
+    console.log(`Denying connection from ${req.connection.remoteAddress} at origin ${req.headers.origin}`);
+    socket.destroy();
+  }
+});
 
-  httpServer.on('upgrade', (req, socket, head) => {
-    if (!isNEString(config.security?.websocketOrigin) || req.headers.origin?.startsWith(config.security?.websocketOrigin)) {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
-      })
-    } else {
-      console.log(`Denying connection from ${req.connection.remoteAddress} at origin ${req.headers.origin}`)
-      socket.destroy();
-    }
-  })
+wss.on("connection", (ws: ws) => {
 
-wss.on('connection', (ws: ws) => {
   connections.push(ws);
 
-  ws.on('message', (data: ws.Data) => {
+  ws.send(JSON.stringify({
+    type: MessageType.QUEUE,
+    data: downloadQueue
+  }))
+
+  ws.on("message", (data: ws.Data) => {
     try {
       const msg = JSON.parse(data.toString());
 
       switch (msg.action) {
         case ActionType.LIST:
-          wsList(ws, msg.path);
+          onList(ws, msg);
           break;
         case ActionType.DELETE:
-          wsDelete(ws, msg.path);
+          onDelete(ws, msg);
           break;
-        case ActionType.DOWNLOAD:
-          onAddToQueue(ws, msg.path);
+        case ActionType.QUEUE_ADD:
+          onQueueAdd(ws, msg);
           break;
-        case ActionType.LIST_QUEUE:
-          sendQueueList();
-          break;
-        case ActionType.QUEUE_CANCEL:
-          onRemoveFromQueue(ws, msg.path);
+        case ActionType.QUEUE_REMOVE:
+          onQueueRemove(ws, msg);
           break;
       }
     } catch (e) {
-      sendError(ws, `Action error: could not parse message (${e}) `);
+      // Do nothing
     }
   });
 
-  ws.on('close', (ws: ws) => {
+  ws.on("close", (ws: ws) => {
     const index = connections.indexOf(ws);
     if (index > -1) {
       connections.splice(index, 1);
     }
-  })
-})
+  });
+});
 
 // WebSocket helper functions
 
-function sendError(connection: ws, error: string) {
-  connection?.send(JSON.stringify({
-    type: MessageType.ERROR,
-    data: error,
-  }));
+function sendResponse(connection: ws, response: Response) {
+  connection?.send(JSON.stringify(response));
 }
-
-function sendSuccess(connection: ws, message: string) {
-  connection?.send(JSON.stringify({
-    type: MessageType.SUCCESS,
-    data: message,
-  }));
-}
-
-function sendErrorToAll(error: string) {
-  sendToAll(
-    JSON.stringify({
-      type: MessageType.ERROR,
-      data: error,
-    })
-  );
-}
-
-function sendSuccesToAll(message: string) {
-  sendToAll(
-    JSON.stringify({
-      type: MessageType.SUCCESS,
-      data: message,
-    })
-  );
-}
-
 
 function sendQueueList() {
   sendToAll(
@@ -249,9 +224,31 @@ function sendToAll(message: string) {
 
 // WebSocket message handlers
 
-async function wsList(connection: ws, directory: string) {
-  if (!checkPathSafe(directory)) {
-    sendError(connection, "Invalid list path");
+async function onList(connection: ws, message: ActionMessage) {
+  if (!isString(message.data?.path)) {
+    sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        subType: ErrorType.INVALID_ARGUMENT_TYPE,
+        reason: "Path should be of type string",
+      },
+    });
+    return;
+  }
+
+  let directory = message.data?.path as string;
+
+  if (!checkSafePath(directory)) {
+    sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        reason: "Path is not valid",
+      },
+    });
     return;
   }
 
@@ -262,7 +259,14 @@ async function wsList(connection: ws, directory: string) {
     list = await listFtp(directory.replace(/\\/g, "/"));
   } catch (e) {
     console.error(e);
-    sendError(connection, `List error: ${e}`);
+    sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.FTP_ERROR,
+        reason: e.message,
+      },
+    });
     return;
   }
 
@@ -287,51 +291,99 @@ async function wsList(connection: ws, directory: string) {
       };
     });
 
-  const message = JSON.stringify({
-    type: MessageType.LIST,
-    data: (!checkLocalPathSafe(path.dirname(path.resolve(path.join(downloadDirectory, directory))))
-      ? []
-      : [
-          {
-            name: "Parent directory",
-            path: path.dirname(directory) ? path.dirname(directory) : "",
-            existsLocally: true,
-            type: -1,
-          },
-        ]
-    ).concat(mappedList),
+  const resultList = (!checkLocalPathSafe(path.dirname(path.resolve(path.join(downloadDirectory, directory))))
+    ? []
+    : [
+        {
+          name: "Parent directory",
+          path: path.dirname(directory) ? path.dirname(directory) : "",
+          existsLocally: true,
+          type: -1,
+        },
+      ]
+  ).concat(mappedList);
+
+  sendResponse(connection, {
+    id: message.id,
+    success: true,
+    data: resultList,
   });
-  connection.send(message);
 }
 
-function wsDelete(connection: ws, deletePath: string) {
-  if (!isNEString(deletePath)) {
-    sendError(connection, "Delete error: empty delete path");
-    return;
+function onDelete(connection: ws, message: ActionMessage) {
+
+  if (!isString(message.data?.path)) {
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        subType: ErrorType.INVALID_ARGUMENT_TYPE,
+        reason: "Path should be of type string",
+      },
+    });
   }
 
+  const deletePath = message.data?.path as string;
   const cleanPath = getCleanPath(deletePath);
 
-  if (!checkPathSafe(cleanPath)) {
-    sendError(connection, "Delete error: invalid delete path");
-    return;
+  if (!checkSafePath(deletePath)) {
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        reason: "Path is invalid",
+      },
+    });
   }
 
   const actualDeletePath = path.join(downloadDirectory, cleanPath);
 
   try {
     rmSync(actualDeletePath);
-    sendSuccess(connection, `Sucessfully deleted '${cleanPath}'`)
+    return sendResponse(connection, {
+      id: message.id,
+      success: true
+    })
   } catch (e) {
     console.error(e);
-    sendError(connection, `Delete error for ${cleanPath} (${e})`);
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.DELETE_ERROR,
+        reason: e.message,
+      },
+    });
   }
 }
 
-async function onAddToQueue(connection: ws, addToQueuePath: string) {
-  if (!checkPathSafe(addToQueuePath)) {
-    sendError(connection, "Queue add error: invalid download path");
-    return;
+async function onQueueAdd(connection: ws, message: ActionMessage) {
+
+  if (!isString(message.data?.path)) {
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        subType: ErrorType.INVALID_ARGUMENT_TYPE,
+        reason: "Path should be of type string",
+      },
+    });
+  }
+
+  const addToQueuePath = message.data?.path as string
+
+  if (!checkSafePath(addToQueuePath)) {
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        reason: "Path is invalid",
+      },
+    });
   }
 
   const cleanPath = getCleanPath(addToQueuePath);
@@ -339,8 +391,15 @@ async function onAddToQueue(connection: ws, addToQueuePath: string) {
   const ftpBaseName = path.basename(cleanPath);
 
   if (downloadQueue.find((el) => el.path == cleanPath)) {
-    sendError(connection, "Queue add error: element already in queue");
-    return;
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.QUEUE_ERROR,
+        subType: ErrorType.QUEUE_ALREADY_ADDED,
+        reason: "Element is already in queue",
+      },
+    });
   }
 
   let file: FileInfo;
@@ -350,8 +409,14 @@ async function onAddToQueue(connection: ws, addToQueuePath: string) {
     file = list.find((el) => el.name === ftpBaseName);
   } catch (e) {
     console.error(e);
-    sendError(connection, `Queue add error: could not get file details (${e})`);
-    return;
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.QUEUE_ERROR,
+        reason: "Could not get file details",
+      },
+    });
   }
 
   if (file) {
@@ -367,30 +432,73 @@ async function onAddToQueue(connection: ws, addToQueuePath: string) {
 
     downloadQueue.push(queueElement);
 
+    sendResponse(connection, {
+      id: message.id,
+      success: true,
+      data: queueElement
+    });
     sendQueueList();
-    startQueue();
 
+    startQueue();
     calculateFTPSize(file, queueElement);
+
   } else {
-    sendError(connection, "Queue add error: could not determine file type");
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.QUEUE_ERROR,
+        reason: "Could not get determine file type",
+      },
+    });
   }
 }
 
-function onRemoveFromQueue(connection: ws, cancelPath: string) {
+function onQueueRemove(connection: ws, message: ActionMessage) {
+
+  if (!isString(message.data?.path)) {
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        subType: ErrorType.INVALID_ARGUMENT_TYPE,
+        reason: "Path should be of type string",
+      },
+    });
+  }
+
+  const cancelPath = message.data?.path as string
+
   const cleanPath = getCleanPath(cancelPath);
   const index = downloadQueue.findIndex((el) => el.path === cleanPath);
   const queueElement = downloadQueue[index];
 
   if (queueElement) {
+
     if (queueElement.isDownloading) {
       queueElement.isCancelled = true;
       if (!downloadClient.closed) downloadClient.close();
+      // Queue element gets remove when download fails due to client being closed
     } else {
       downloadQueue.splice(index, 1);
-      sendQueueList();
     }
+
+    return sendResponse(connection, {
+      id: message.id,
+      success: true,
+      data: downloadQueue.splice(index, 1)[0]
+    });
+
   } else {
-    sendError(connection, "Queue cancel error: element not in queue");
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        reason: "Element not in queue",
+      },
+    });
   }
 }
 
@@ -462,21 +570,37 @@ async function downloadQueueElement(queueElement: QueueElement) {
       stopTrackingProgress();
     }
     closeDownloadClient();
+
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1);
     sendQueueList();
-    sendSuccesToAll(`Succesfully downloaded ${queueElement.name}`)
+    sendToAll(JSON.stringify({
+      type: MessageType.DOWNLOAD_COMPLETE,
+      data: queueElement
+    }));
   } catch (e) {
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1);
     sendQueueList();
 
     if (!queueElement.isCancelled) {
-      sendErrorToAll(`Download error for '${queueElement?.path}' (${e}`);
+      sendToAll(JSON.stringify({
+        type: MessageType.DOWNLOAD_ERROR,
+        data: {
+          reason: e.message
+        }
+      }));
       console.error(e);
     } else {
       try {
         rmSync(localPath);
       } catch (e) {
-        sendErrorToAll(`Queue cancel error: could not remove file remnants for ${queueElement.path} (${e})'`);
+        sendToAll(JSON.stringify({
+          type: MessageType.QUEUE_CANCEL_ERROR,
+          data: {
+            type: MessageType.QUEUE_CANCEL_REMNANTS_REMOVE_ERROR,
+            reason: e.message,
+            queueElement: queueElement
+          }
+        }))
       }
     }
   }
@@ -553,21 +677,37 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
         })
         .catch((e) => {
           clearInterval(updateSizeIntervalId);
-          sendErrorToAll(`Queue error: Could not determine queue element size of folder (${e})`);
+          sendToAll(JSON.stringify({
+            type: MessageType.QUEUE_ELEMENT_SIZE_ERROR,
+            data: {
+              queueElement: queueElement,
+              reason: e.message
+            }
+          }))
           console.error(e);
         });
     } else {
-      sendErrorToAll("Queue error: Could not determine queue element size for non folder and non file type");
+      sendToAll(JSON.stringify({
+        type: MessageType.QUEUE_ELEMENT_SIZE_ERROR,
+        data: {
+          queueElement: queueElement,
+          reason: "Element is nor a folder nor a file?"
+        }
+      }))
     }
   } catch (e) {
     browseClient.close();
     console.error(e);
-    sendErrorToAll(`Queue error: Could not determine queue element size (${e}) `);
-    return;
+    return sendToAll(JSON.stringify({
+      type: MessageType.QUEUE_ELEMENT_SIZE_ERROR,
+      data: {
+        queueElement: queueElement,
+        reason: e.message
+      }
+    }))
   }
 
   async function getFolderSize(folderPath: string, level: number, queueElement: QueueElement) {
-
     if (queueElement.isCancelled || level > folderSizeDepth) return 0;
 
     const list = await browseClient.list(folderPath);
@@ -586,11 +726,15 @@ async function calculateFTPSize(file: FileInfo, queueElement: QueueElement) {
 
 // Util
 
-function isNEString(value: unknown) {
-  return typeof value === "string" && value.length > 0;
+function isString(value: unknown) {
+  return typeof value === "string";
 }
 
-function checkPathSafe(checkPath: string) {
+function isNEString(value: unknown) {
+  return isString(value) && (value as string).length > 0;
+}
+
+function checkSafePath(checkPath: string) {
   const absCheckPath = path.resolve(path.join(downloadDirectory, checkPath));
 
   return checkLocalPathSafe(absCheckPath);

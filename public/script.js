@@ -15,31 +15,36 @@ function connectWebSocket() {
     ws = new WebSocket(((window.location.protocol === "https:") ? "wss://" : "ws://") + window.location.host + "/ws");
 
     ws.onmessage = (messageEvent) => {
-        try {
-            const message = JSON.parse(messageEvent.data);
 
-            switch (message.type) {
-                case "list":
-                    loadList(message.data)
-                    break;
-                case "listElement":
-                    loadListElement(message.data)
-                    break;
-                case "queue":
-                    loadQueue(message.data)
-                    break;
-                case "queueElement":
-                    loadQueueElement(message.data)
-                    break;
-                case "error":
-                    showMessage(message.data, true)
-                    break;
-                case "success":
-                    showMessage(message.data, false)
-                    break;
-            }
+        let message;
+
+        try {
+            message = JSON.parse(messageEvent.data);
         } catch (e) {
-            console.error(e)
+            console.error(e);
+            return;
+        }
+
+        const promise = wsPromises[message.id];
+        if (promise) {
+            if (message.success) {
+                promise.resolve(message.data);
+            } else {
+                promise.reject(message.error);
+            }
+            delete wsPromises[message.id];
+        }
+
+        switch (message.type) {
+            case "listElement":
+                loadListElement(message.data)
+                break;
+            case "queue":
+                loadQueue(message.data)
+                break;
+            case "queueElement":
+                loadQueueElement(message.data)
+                break;
         }
     }
 
@@ -57,9 +62,8 @@ function connectWebSocket() {
     }
 
     ws.onopen = () => {
-        showMessage("Connected to backend", false);
-        if (!currentList) listPath('');
-        listQueue();
+        showMessage("Connected", false);
+        if (!currentList) sendListAction('');
         document.getElementById("disconnected").classList.add("hide")
     }
 }
@@ -69,29 +73,11 @@ function loadTheme() {
     if (themePref) toggleDarkMode(themePref === 'dark');
 }
 
-function listPath(path) {
-    showWSNotConnectedErrror();
-    if (!ws) return;
-    ws.send(JSON.stringify({
-        action: "list",
-        path: path
-    }));
-}
-
 function listQueue() {
     showWSNotConnectedErrror();
     if (!ws) return;
     ws.send(JSON.stringify({
         action: "listQueue"
-    }));
-}
-
-function downloadPath(path) {
-    showWSNotConnectedErrror();
-    if (!ws) return;
-    ws.send(JSON.stringify({
-        action: "download",
-        path: path
     }));
 }
 
@@ -104,13 +90,107 @@ function deletePath(path) {
     }));
 }
 
-function cancelQueueElement(path) {
+// Promisify'd WebSocket reply - response
+
+const MAX_WS_ID = 6969;
+const wsPromises = {};
+let currentId = 0;
+
+function request(message) {
+
+    return new Promise((resolve, reject) => {
+
+        if (!ws) reject("Not connected")
+
+        const id = currentId++ % MAX_WS_ID;
+
+        wsPromises[id] = {
+            resolve: resolve,
+            reject: reject
+        }
+
+        message.id = id;
+
+        ws.send(JSON.stringify(message))
+    })
+}
+
+// WebSocket send functions
+
+async function sendListAction(path) {
+
     showWSNotConnectedErrror();
     if (!ws) return;
-    ws.send(JSON.stringify({
-        action: "cancelQueueElement",
-        path: path
-    }));
+
+    const body = document.getElementById("explorer");
+
+    if (body) body.classList.add("loading");
+
+    try {
+        const list = await request({
+            action: "list",
+            data: {
+                path: path
+            }
+        })
+        loadList(list)
+    } catch (e) {
+        console.error(e)
+    }
+
+    if (body) body.classList.remove("loading");
+}
+
+async function sendQueueAddAction(path) {
+
+    showWSNotConnectedErrror();
+    if (!ws) return;
+
+    try {
+        await request({
+            action: "queueAdd",
+            data: {
+                path: path
+            }
+        })
+    } catch (e) {
+        console.error(e)
+    }
+}
+
+async function sendQueueRemoveAction(path) {
+
+    showWSNotConnectedErrror();
+    if (!ws) return;
+
+    try {
+        await request({
+            action: "queueRemove",
+            data: {
+                path: path
+            }
+        })
+    } catch (e) {
+        console.error(e)
+    }
+}
+
+async function sendDeleteCommand(path) {
+
+    showWSNotConnectedErrror();
+    if (!ws) return;
+
+    try {
+        const queueElement = await request({
+            action: "delete",
+            data: {
+                path: path
+            }
+        })
+        console.log(queueElement)
+    } catch (e) {
+        console.error(e)
+    }
 }
 
 // Loading explorer list UI
@@ -123,8 +203,6 @@ function loadList(data) {
     const body = document.getElementById("explorer");
 
     if (!body) return;
-
-    body.classList.remove("loading");
 
     while (body.firstChild) body.removeChild(body.firstChild);
 
@@ -186,21 +264,21 @@ function getDOMElementForListElement(listElement) {
     downloadAction.onclick = (event) => {
         event.stopPropagation();
         if (!listElement.existsLocally)
-            downloadPath(listElement.path)
+            sendQueueAddAction(listElement.path)
     }
 
     deleteAction.onclick = (event) => {
         event.stopPropagation();
-        if (listElement.existsLocally) {
-            if (confirm(`Are you sure you want to delete '${listElement.path}'?`)) {
-                deletePath(listElement.path)
-            }
-        }
+        const doDelete = listElement.existsLocally 
+            ? confirm(`Are you sure you want to delete '${listElement.path}'?`)
+            : false
+
+        if (doDelete) sendDeleteCommand(listElement.path);
     }
 
     tr.onclick = () => {
         if (listElement.type === TYPE_FOLDER || listElement.type === TYPE_PARENT)
-            listPath(listElement.path)
+            sendListAction(listElement.path)
     }
 
     return tr;
@@ -274,13 +352,11 @@ function getDOMElementForQueueElement(queueElement) {
     // Whole row click listener for cancel
     tr.onclick = (event) => {
         event.stopPropagation();
-        if (queueElement.isDownloading) {
-            if (confirm(`Are you sure you want to cancel downloading '${queueElement.path}'?`)) {
-                cancelQueueElement(queueElement.path);
-            }
-        } else {
-            cancelQueueElement(queueElement.path);
-        }
+        const doRemove = queueElement.isDownloading 
+            ? confirm(`Are you sure you want to cancel downloading '${queueElement.path}'?`) 
+            : true;
+
+        if (doRemove) sendQueueRemoveAction(queueElement.path);
     }
 
     state.innerText = queueElement.isDownloading ? "⬇️" : "⌛";
@@ -371,7 +447,7 @@ function showMessage(data, isError) {
 
 function showWSNotConnectedErrror() {
     if (!ws) {
-        showMessage("Could not complete action, not connected to backend" , true);
+        showMessage("Could not complete action, not connected to backend", true);
     }
 }
 
