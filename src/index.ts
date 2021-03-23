@@ -11,7 +11,7 @@ import path from "path";
 
 // Server
 import express from "express";
-import { server, connection } from "websocket";
+import ws from "ws";
 import http from "http";
 
 // Types and constants
@@ -142,60 +142,63 @@ let isDownloadingQueue = false;
 
 // WebSocket
 
-const connections: connection[] = [];
+const connections: ws[] = [];
 
-const wsServer = new server({
-  httpServer: httpServer,
-  autoAcceptConnections: true,
-});
+const wss = new ws.Server({noServer: true})
 
-wsServer.on("connect", (connection) => {
-  connections.push(connection);
+httpServer.on('upgrade', (req, socket, head) => {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  })
+})
 
-  connection.on("message", (message) => {
+wss.on('connection', (ws: ws) => {
+  connections.push(ws);
+
+  ws.on('message', (data: ws.Data) => {
     try {
-      const msg = JSON.parse(message.utf8Data);
+      const msg = JSON.parse(data.toString());
 
       switch (msg.action) {
         case ActionType.LIST:
-          wsList(connection, msg.path);
+          wsList(ws, msg.path);
           break;
         case ActionType.DELETE:
-          wsDelete(connection, msg.path);
+          wsDelete(ws, msg.path);
           break;
         case ActionType.DOWNLOAD:
-          onAddToQueue(connection, msg.path);
+          onAddToQueue(ws, msg.path);
           break;
         case ActionType.LIST_QUEUE:
           sendQueueList();
           break;
         case ActionType.QUEUE_CANCEL:
-          onRemoveFromQueue(connection, msg.path);
+          onRemoveFromQueue(ws, msg.path);
           break;
       }
     } catch (e) {
-      sendError(connection, `Action error: could not parse message (${e}) `);
+      sendError(ws, `Action error: could not parse message (${e}) `);
     }
   });
 
-  connection.on("close", () => {
-    const index = connections.indexOf(connection);
+  ws.on('close', (ws: ws) => {
+    const index = connections.indexOf(ws);
     if (index > -1) {
       connections.splice(index, 1);
     }
-  });
-});
+  })
+})
 
 // WebSocket helper functions
 
-function sendError(connection: connection, error: string) {
+function sendError(connection: ws, error: string) {
   connection?.send(JSON.stringify({
     type: MessageType.ERROR,
     data: error,
   }));
 }
 
-function sendSuccess(connection: connection, message: string) {
+function sendSuccess(connection: ws, message: string) {
   connection?.send(JSON.stringify({
     type: MessageType.SUCCESS,
     data: message,
@@ -236,7 +239,7 @@ function sendToAll(message: string) {
 
 // WebSocket message handlers
 
-async function wsList(connection: connection, directory: string) {
+async function wsList(connection: ws, directory: string) {
   if (!checkPathSafe(directory)) {
     sendError(connection, "Invalid list path");
     return;
@@ -291,7 +294,7 @@ async function wsList(connection: connection, directory: string) {
   connection.send(message);
 }
 
-function wsDelete(connection: connection, deletePath: string) {
+function wsDelete(connection: ws, deletePath: string) {
   if (!isNEString(deletePath)) {
     sendError(connection, "Delete error: empty delete path");
     return;
@@ -315,7 +318,7 @@ function wsDelete(connection: connection, deletePath: string) {
   }
 }
 
-async function onAddToQueue(connection: connection, addToQueuePath: string) {
+async function onAddToQueue(connection: ws, addToQueuePath: string) {
   if (!checkPathSafe(addToQueuePath)) {
     sendError(connection, "Queue add error: invalid download path");
     return;
@@ -363,7 +366,7 @@ async function onAddToQueue(connection: connection, addToQueuePath: string) {
   }
 }
 
-function onRemoveFromQueue(connection: connection, cancelPath: string) {
+function onRemoveFromQueue(connection: ws, cancelPath: string) {
   const cleanPath = getCleanPath(cancelPath);
   const index = downloadQueue.findIndex((el) => el.path === cleanPath);
   const queueElement = downloadQueue[index];
