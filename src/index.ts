@@ -340,6 +340,17 @@ function onDelete(connection: ws, message: ActionMessage) {
   const deletePath = message.data?.path as string;
   const cleanPath = getCleanPath(deletePath);
 
+  if (isPartOfQueueElement(deletePath)) {
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        reason: "Element is part of the currently downloading queue element",
+      },
+    });
+  }
+
   if (!checkSafePath(deletePath)) {
     return sendResponse(connection, {
       id: message.id,
@@ -395,6 +406,17 @@ async function onQueueAdd(connection: ws, message: ActionMessage) {
       error: {
         type: ErrorType.INVALID_ARGUMENT,
         reason: "Path is invalid",
+      },
+    });
+  }
+
+  if (isPartOfQueueElement(addToQueuePath)) {
+    return sendResponse(connection, {
+      id: message.id,
+      success: false,
+      error: {
+        type: ErrorType.INVALID_ARGUMENT,
+        reason: "Element is already part of existing queue element",
       },
     });
   }
@@ -778,6 +800,25 @@ function checkLocalPathSafe(checkPath: string) {
   const relative = path.relative(downloadDirectory, absCheckPath);
 
   return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function isPartOfQueueElement (checkPath: string, onlyFirst = true) {
+  const absCheckPath = path.resolve(checkPath);
+
+  for (const el of downloadQueue) {
+    const absElPath = path.resolve(el.path);
+
+    if (absElPath === absCheckPath) return true;
+
+    const relative = path.relative(absElPath, absCheckPath);
+
+    if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+      return true;
+    }
+    if (onlyFirst) break;
+  }
+
+  return false;
 }
 
 function getCleanPath(uncleanPath: string) {
