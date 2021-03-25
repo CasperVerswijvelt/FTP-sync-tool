@@ -358,6 +358,7 @@ function getDOMElementForQueueElement(queueElement) {
     const type = document.createElement("td");
     const name = document.createElement("td");
     const progress = document.createElement("td");
+    const progressDivider = document.createElement("td");
     const total = document.createElement("td");
     const cancelButton = document.createElement("td");
 
@@ -365,6 +366,7 @@ function getDOMElementForQueueElement(queueElement) {
     type.classList.add("type");
     name.classList.add("name");
     progress.classList.add("progress");
+    progressDivider.classList.add("progress-divider");
     total.classList.add("total");
     cancelButton.classList.add("cancel");
 
@@ -385,12 +387,14 @@ function getDOMElementForQueueElement(queueElement) {
     name.title = queueElement.path;
     progress.innerText = formatBytes(queueElement.progress);
     total.innerText = formatBytes(queueElement.size);
+    progressDivider.innerText = " / "
     cancelButton.innerText = "❌"
 
     tr.appendChild(state);
     tr.appendChild(type);
     tr.appendChild(name);
     tr.appendChild(progress);
+    tr.appendChild(progressDivider);
     tr.appendChild(total);
     tr.appendChild(cancelButton);
 

@@ -202,9 +202,8 @@ section.loading .spinner {
     white-space: nowrap;
 }
 
-#queue .progress,
-#queue .total {
-    flex-basis: 95px;
+#queue .progress-divider {
+    flex: 0 1 0;
 }
 
 /* Error */
