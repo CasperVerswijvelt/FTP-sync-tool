@@ -58,11 +58,28 @@ h2 {
     margin: 20px 0;
     color: var(--subtitle-color);
     transition: color var(--theme-transition-duration);
-
 }
 
 section {
     margin: 20px;
+}
+
+section h2 {
+    display: flex;
+    align-items: center;
+}
+
+section h2 span {
+    flex: 1;
+}
+
+section h2 .spinner {
+    padding-left: 10px;
+    display: none;
+}
+
+section.loading .spinner {
+    display: inline-block;
 }
 
 #disconnected {
@@ -161,14 +178,6 @@ section {
     padding-bottom: 10px;
 }
 
-.sexy-table + .spinner {
-    display: none;
-}
-
-.sexy-table.loading + .spinner{
-    display: block;
-}
-
 /* Specific table styling */
 
 #explorer .name {
@@ -247,11 +256,11 @@ section {
 /* Spinkit spinner */
 /* https://tobiasahlin.com/spinkit/ */
 .spinner {
-    width: 40px;
-    height: 40px;
+    width: 20px;
+    height: 20px;
   
     position: relative;
-    margin: 20px auto;
+    display: inline-block;
   }
   
   .double-bounce1, .double-bounce2 {

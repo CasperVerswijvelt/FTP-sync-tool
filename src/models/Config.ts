@@ -1,8 +1,8 @@
 export class Config {
     ftp: FTPConfig;
     security?: SecurityConfig;
-    downloadDirectory?: string;
     folderSizeDepth?: number;
+    download?: DownloadConfig;
 }
 
 export class FTPConfig {
@@ -16,4 +16,10 @@ export class FTPConfig {
 
 export class SecurityConfig {
     websocketOrigin?: string;
+}
+
+export class DownloadConfig {
+    downloadDirectory?: string;
+    removeOnCancel?: boolean;
+    removeOnError?: boolean;
 }

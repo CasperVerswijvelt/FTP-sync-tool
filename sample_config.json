@@ -1,9 +1,19 @@
 {
-  "downloadDirectory": "./downloadDir",
-  "host": "12.34.56.78",
-  "user": "user",
-  "password": "password",
-  "certificate": "server-cert.pem",
-  "checkServerIdentity": false,
-  "folderSizeDepth": 3
+  "ftp": {
+    "host": "192.168.69.11",
+    "user": "user",
+    "password": "password",
+    "secure": true,
+    "certificate": "server-cert.pem",
+    "checkServerIdentity": false,
+    "folderSizeDepth": 3
+  },
+  "download": {
+    "downloadDirectory": "./downloadDir/",
+    "removeOnCancel": false,
+    "removeOnError": true
+  },
+  "security": {
+    "websocketOrigin": ""
+  }
 }

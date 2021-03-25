@@ -1,5 +1,6 @@
 // Create websocket connection
 let ws;
+let wsOpened = false;
 
 const TYPE_PARENT = -1;
 const TYPE_FILE = 1;
@@ -7,6 +8,34 @@ const TYPE_FOLDER = 2;
 
 let currentList;
 let currentQueue;
+let isLoadingExplorer = false;
+
+const HTML_ID_QUEUE = "queue";
+const HTML_ID_QUEUE_BODY = "queue-body";
+const HTML_ID_EXPLORER = "explorer";
+const HTML_ID_EXPLORER_BODY = "explorer-body";
+const HTML_ID_MESSAGES = "messages";
+const HTML_ID_DISCONNECTED = "disconnected";
+
+const HTML_CLASS_LOADING = "loading";
+const HTML_CLASS_SUCCESS = "success";
+const HTML_CLASS_ERROR = "error";
+const HTML_CLASS_MESSAGE = "message";
+const HTML_CLASS_HIDE = "hide";
+
+const THEME_DARK = "dark";
+const THEME_LIGHT = "light"
+const THEME_KEY = "theme"
+const DATA_THEME = "data-theme"
+
+const MESSAGE_LIST_ELEMENT = "listElement";
+const MESSAGE_QUEUE = "queue";
+const MESSAGE_QUEUE_ELEMENT= "queueElement";
+
+const ACTION_LIST = "list";
+const ACTION_QUEUE_ADD = "queueAdd";
+const ACTION_QUEUE_REMOVE = "queueRemove";
+const ACTION_DELETE = "delete";
 
 loadTheme();
 connectWebSocket();
@@ -36,13 +65,13 @@ function connectWebSocket() {
         }
 
         switch (message.type) {
-            case "listElement":
+            case MESSAGE_LIST_ELEMENT:
                 loadListElement(message.data)
                 break;
-            case "queue":
+            case MESSAGE_QUEUE:
                 loadQueue(message.data)
                 break;
-            case "queueElement":
+            case MESSAGE_QUEUE_ELEMENT:
                 loadQueueElement(message.data)
                 break;
         }
@@ -52,8 +81,9 @@ function connectWebSocket() {
         ws = null;
         console.log('WebSocket connection closed. Reconnecting in 1 second...', e.reason);
         setTimeout(connectWebSocket, 1000);
-        showMessage("Lost connection to backend", true);
-        document.getElementById("disconnected").classList.remove("hide")
+        showMessage(wsOpened ? "Lost connection" : "Could not connect", true);
+        wsOpened = false;
+        document.getElementById(HTML_ID_DISCONNECTED).classList.remove(HTML_CLASS_HIDE)
     }
 
     ws.onerror = (err) => {
@@ -63,31 +93,15 @@ function connectWebSocket() {
 
     ws.onopen = () => {
         showMessage("Connected", false);
+        wsOpened = true;
         if (!currentList) sendListAction('');
-        document.getElementById("disconnected").classList.add("hide")
+        document.getElementById(HTML_ID_DISCONNECTED).classList.add(HTML_CLASS_HIDE)
     }
 }
 
 function loadTheme() {
-    const themePref = localStorage.getItem('theme');
-    if (themePref) toggleDarkMode(themePref === 'dark');
-}
-
-function listQueue() {
-    showWSNotConnectedErrror();
-    if (!ws) return;
-    ws.send(JSON.stringify({
-        action: "listQueue"
-    }));
-}
-
-function deletePath(path) {
-    showWSNotConnectedErrror();
-    if (!ws) return;
-    ws.send(JSON.stringify({
-        action: "delete",
-        path: path
-    }));
+    const themePref = localStorage.getItem(THEME_KEY);
+    if (themePref) toggleDarkMode(themePref === THEME_DARK);
 }
 
 // Promisify'd WebSocket reply - response
@@ -121,14 +135,18 @@ async function sendListAction(path) {
 
     showWSNotConnectedErrror();
     if (!ws) return;
+    if (isLoadingExplorer) return;
 
-    const body = document.getElementById("explorer");
+    isLoadingExplorer = true;
 
-    if (body) body.classList.add("loading");
+    const body = document.getElementById(HTML_ID_EXPLORER_BODY);
+
+    const explorer = document.getElementById(HTML_ID_EXPLORER);
+    explorer?.classList.add(HTML_CLASS_LOADING);
 
     try {
         const list = await request({
-            action: "list",
+            action: ACTION_LIST,
             data: {
                 path: path
             }
@@ -138,7 +156,8 @@ async function sendListAction(path) {
         console.error(e)
     }
 
-    if (body) body.classList.remove("loading");
+    isLoadingExplorer = false;
+    explorer?.classList.remove(HTML_CLASS_LOADING);
 }
 
 async function sendQueueAddAction(path) {
@@ -148,7 +167,7 @@ async function sendQueueAddAction(path) {
 
     try {
         await request({
-            action: "queueAdd",
+            action: ACTION_QUEUE_ADD,
             data: {
                 path: path
             }
@@ -165,7 +184,7 @@ async function sendQueueRemoveAction(path) {
 
     try {
         await request({
-            action: "queueRemove",
+            action: ACTION_QUEUE_REMOVE,
             data: {
                 path: path
             }
@@ -182,7 +201,7 @@ async function sendDeleteCommand(path) {
 
     try {
         const queueElement = await request({
-            action: "delete",
+            action: ACTION_DELETE,
             data: {
                 path: path
             }
@@ -200,7 +219,7 @@ function loadList(data) {
 
     currentList = data
 
-    const body = document.getElementById("explorer");
+    const body = document.getElementById(HTML_ID_EXPLORER_BODY);
 
     if (!body) return;
 
@@ -270,7 +289,7 @@ function getDOMElementForListElement(listElement) {
     deleteAction.onclick = (event) => {
         event.stopPropagation();
         const doDelete = listElement.existsLocally 
-            ? confirm(`Are you sure you want to delete '${listElement.path}'?`)
+            ? confirm(`Are you sure you want to delete '${listElement.name}'?`)
             : false
 
         if (doDelete) sendDeleteCommand(listElement.path);
@@ -308,7 +327,7 @@ function loadListElement(data) {
 
     const domElement = getDOMElementForListElement(existingListElement);
 
-    const parent = document.querySelector("#explorer");
+    const parent = document.getElementById(HTML_ID_EXPLORER_BODY);
     parent.childNodes[index]?.replaceWith(domElement);
 }
 
@@ -319,11 +338,11 @@ function loadQueue(data) {
 
     currentQueue = data
 
-    const body = document.getElementById("queue");
+    const body = document.getElementById(HTML_ID_QUEUE_BODY);
 
     if (!body) return;
 
-    body.classList.remove("loading");
+    document.getElementById(HTML_ID_QUEUE).classList.remove(HTML_CLASS_LOADING);
 
     while (body.firstChild) body.removeChild(body.firstChild);
 
@@ -382,14 +401,14 @@ function toggleDarkMode(force) {
 
     const theme = typeof force === 'boolean'
         ? force
-            ? "dark"
-            : "light"
-        : document.documentElement.getAttribute('data-theme') !== 'light'
-            ? 'light'
-            : 'dark'
+            ? THEME_DARK
+            : THEME_LIGHT
+        : document.documentElement.getAttribute(DATA_THEME) !== THEME_LIGHT
+            ? THEME_LIGHT
+            : THEME_DARK
 
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
+    document.documentElement.setAttribute(DATA_THEME, theme);
+    localStorage.setItem(THEME_KEY, theme);
 }
 
 // Update single queue element in UI
@@ -422,7 +441,7 @@ function loadQueueElement(data) {
 
     const domElement = getDOMElementForQueueElement(existingQueueElement);
 
-    const parent = document.querySelector("#queue");
+    const parent = document.getElementById(HTML_ID_QUEUE_BODY);
     parent.childNodes[index]?.replaceWith(domElement);
 }
 
@@ -430,11 +449,11 @@ function showMessage(data, isError) {
 
     if (!data) return;
 
-    const messagesContainer = document.getElementById("messages")
+    const messagesContainer = document.getElementById(HTML_ID_MESSAGES)
 
     const errorEl = document.createElement("div");
-    errorEl.classList.add("message");
-    errorEl.classList.add(isError ? "error" : "success");
+    errorEl.classList.add(HTML_CLASS_MESSAGE);
+    errorEl.classList.add(isError ? HTML_CLASS_ERROR : HTML_CLASS_SUCCESS);
 
     errorEl.textContent = data;
 

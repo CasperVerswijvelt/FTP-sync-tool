@@ -29,6 +29,8 @@ import { ErrorType } from "./models/Error";
 
 let downloadDirectory = "./";
 let folderSizeDepth = 5;
+let removeOnCancel = true;
+let removeOnError = true;
 
 // FTP client and access options
 
@@ -73,9 +75,20 @@ try {
   }
 
   // Local downloaddiretory: optional ['./']
-  if (isNEString(config.downloadDirectory)) {
-    downloadDirectory = config.downloadDirectory;
+  if (isNEString(config?.download?.downloadDirectory)) {
+    downloadDirectory = config?.download?.downloadDirectory;
   }
+
+  // Remove on cancel: optional [true]
+  if (typeof config?.download?.removeOnCancel === 'boolean') {
+    removeOnCancel = config?.download?.removeOnCancel;
+  }
+
+  // Remove on error: optional [true]
+  if (typeof config?.download?.removeOnError === 'boolean') {
+    removeOnError = config?.download?.removeOnError;
+  }
+
 
   // Folder size depth: optional [5]
   if (typeof config.folderSizeDepth === "number") {
@@ -581,7 +594,37 @@ async function downloadQueueElement(queueElement: QueueElement) {
     downloadQueue.splice(downloadQueue.indexOf(queueElement), 1);
     sendQueueList();
 
-    if (!queueElement.isCancelled) {
+    if (queueElement.isCancelled) {
+      // Element was cancelled, rm according to 'removeOnCancel' config variable
+      if (removeOnCancel) {
+        try {
+          rmSync(localPath);
+        } catch (e) {
+          sendToAll(JSON.stringify({
+            type: MessageType.QUEUE_CANCEL_ERROR,
+            data: {
+              type: MessageType.QUEUE_REMNANTS_REMOVE_ERROR,
+              reason: e.message,
+              queueElement: queueElement
+            }
+          }));
+        }
+      }
+    } else {
+      if (removeOnError) {
+        try {
+          rmSync(localPath);
+        } catch (e) {
+          sendToAll(JSON.stringify({
+            type: MessageType.DOWNLOAD_ERROR,
+            data: {
+              type: MessageType.QUEUE_REMNANTS_REMOVE_ERROR,
+              reason: e.message,
+              queueElement: queueElement
+            }
+          }));
+        }
+      }
       sendToAll(JSON.stringify({
         type: MessageType.DOWNLOAD_ERROR,
         data: {
@@ -589,19 +632,6 @@ async function downloadQueueElement(queueElement: QueueElement) {
         }
       }));
       console.error(e);
-    } else {
-      try {
-        rmSync(localPath);
-      } catch (e) {
-        sendToAll(JSON.stringify({
-          type: MessageType.QUEUE_CANCEL_ERROR,
-          data: {
-            type: MessageType.QUEUE_CANCEL_REMNANTS_REMOVE_ERROR,
-            reason: e.message,
-            queueElement: queueElement
-          }
-        }))
-      }
     }
   }
 }
